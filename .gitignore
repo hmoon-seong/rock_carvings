@@ -1,0 +1,9 @@
+data/
+*.npy
+ref/3d/*.ply
+__pycache__/
+tools/wall_bake/demo/assets/*
+!tools/wall_bake/demo/assets/config.json
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+*:Zone.Identifier

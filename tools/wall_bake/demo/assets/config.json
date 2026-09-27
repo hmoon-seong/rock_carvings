@@ -1,0 +1,21 @@
+{
+ "azimuth": 36,
+ "elevation": 12,
+ "sun": 2.85,
+ "shade": 0,
+ "stains": 0.24,
+ "chalk": 0.54,
+ "crevice": 1.85,
+ "bumps": 1.43,
+ "grain": 0.32,
+ "depth": 12,
+ "bevel": 3.8,
+ "pecks": 0.79,
+ "size": 700,
+ "carveLight": 0.38,
+ "exposure": 0.94,
+ "carve_center_mm": [
+  3013,
+  1805
+ ]
+}

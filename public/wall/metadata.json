@@ -1,0 +1,431 @@
+{
+ "generated_at": "2026-09-27T16:26:17",
+ "width_px": 3072,
+ "height_px": 1372,
+ "mm_per_px": 3.3893138567606607,
+ "width_mm": 10412.0,
+ "height_mm": 4650.1,
+ "scale_is_provisional": true,
+ "coordinates": "mm on the wall plane, origin top-left, x right, y down; texture uv = mm / [width_mm, height_mm]",
+ "images": {
+  "full_normal": {
+   "file": "full_normal.webp",
+   "px": [
+    3072,
+    1372
+   ],
+   "rect_mm": [
+    0,
+    0,
+    10411.97216796875,
+    4650.138611475626
+   ]
+  },
+  "full_albedo": {
+   "file": "full_albedo.webp",
+   "px": [
+    3072,
+    1372
+   ],
+   "rect_mm": [
+    0,
+    0,
+    10411.97216796875,
+    4650.138611475626
+   ],
+   "channels": "RGB = albedo (sRGB), A = ambient occlusion (0 = outside the wall)"
+  },
+  "overview_normal": {
+   "file": "overview_normal.webp",
+   "px": [
+    1024,
+    457
+   ],
+   "rect_mm": [
+    0,
+    0,
+    10411.97216796875,
+    4646.749297618866
+   ]
+  },
+  "overview_albedo": {
+   "file": "overview_albedo.webp",
+   "px": [
+    1024,
+    457
+   ],
+   "rect_mm": [
+    0,
+    0,
+    10411.97216796875,
+    4646.749297618866
+   ],
+   "channels": "RGB = albedo (sRGB), A = ambient occlusion"
+  },
+  "detail_normal": {
+   "file": "detail_normal.webp",
+   "px": [
+    512,
+    512
+   ],
+   "tile_mm": 256.0,
+   "wrap": "repeat"
+  },
+  "placement_mask": {
+   "file": "placement_mask.png",
+   "px": [
+    3072,
+    1372
+   ],
+   "meaning": "255 = user carvings may be placed"
+  }
+ },
+ "upload_notes": "Upload RGBA images with premultiplyAlpha: 'none' and colorSpaceConversion: 'none' (createImageBitmap options), or AO in alpha corrupts RGB and normals get color-managed.",
+ "detail_tile_mm": 256.0,
+ "normal_convention": "OpenGL, +Y up, rgb = n * 0.5 + 0.5",
+ "normal_strength_baked": 1.43,
+ "lighting": {
+  "model": [
+   "nBase = decode(full_normal); nDetail = decode(detail_normal at uv_mm / detail_tile_mm)",
+   "n = normalize(vec3(nBase.xy + detail_strength * nDetail.xy, nBase.z))",
+   "n = normalize(vec3(n.xy + nCarve.xy, n.z))   // user carving layer",
+   "diffuse = max(dot(n, L), 0)",
+   "ambient = mix(ground_color, sky_color, n.y * 0.5 + 0.5) * ao * ambient_intensity",
+   "color = albedo * (sun_color * sun_intensity * diffuse + ambient) * exposure",
+   "all linear; decode sRGB albedo, encode sRGB at the end"
+  ],
+  "light_dir": "L = (sin(az) cos(el), cos(az) cos(el), sin(el)); az 0 = from image top, 90 = from the right",
+  "default": {
+   "azimuth_deg": 36,
+   "elevation_deg": 12,
+   "sun_intensity": 2.85,
+   "ambient_intensity": 0,
+   "exposure": 0.94,
+   "detail_strength": 0.32
+  },
+  "sun_color": [
+   1.0,
+   0.96,
+   0.9
+  ],
+  "sky_color": [
+   0.42,
+   0.45,
+   0.52
+  ],
+  "ground_color": [
+   0.3,
+   0.26,
+   0.24
+  ],
+  "space": "linear"
+ },
+ "carving": {
+  "note": "defaults for the app's carve tool, chosen in the demo; the carve layer is built at runtime",
+  "depth_mm": 12,
+  "bevel_sigma_mm": 3.8,
+  "peck_roughness": 0.79,
+  "drawing_width_mm": 700,
+  "fresh_stone_lightening": 0.38,
+  "demo_center_mm": [
+   3013,
+   1805
+  ],
+  "peck_model": "craters r 1-2.5 mm, depth (0.5-1.5) * peck_roughness mm, 0.15 * roughness per mm^2 of drawing"
+ },
+ "source_sha256": {
+  "ply": "874b0723367b97946a870b9d4ea79e8e930f8655436baf987994ac7bb2e99fa7",
+  "photos": {
+   "original_Page_01.jpg": "6f5d63326612528bb5a8c9648681abb3517bb07dfbd88d158b888f19a221d495",
+   "original_Page_02.jpg": "d4d3a5f90f6673162fdd1c8670fb2aaf331c5a4d1409b686c6259aab770c9230",
+   "original_Page_03.jpg": "f33d9296e05527f695415908e2d72f260ee1ad550459b01cae83a85d60703c73",
+   "original_Page_04.jpg": "d0d6b8a9198ba51b4839c6d907a8ead7faa3330dc2eac8700869cec313645968",
+   "original_Page_05.jpg": "cdfda063c5029640932ac621192731dd37464ff03e699106dc6d28a218437751",
+   "original_Page_06.jpg": "534ae112640144c9c1f4bd5805a035f5a0320729109ba9b482ba54608206b133",
+   "original_Page_07.jpg": "b7942b63d7e8edbc38b93c299fd5810592eaba713685eb34968dbb26f15d55b8",
+   "original_Page_08.jpg": "43ad7318ac69fceec51b598a37c127da770cb78876f35ddf8ab270885b284e6e",
+   "original_Page_09.jpg": "e3b772cef38a1fa8e78978527bf36ad75b35df17b8b4c90821f9ba8c5c780871",
+   "original_Page_10.jpg": "3fe16edd14b45d476881f20a51be2fd3037bc295ec8c114d73bf9503593360d6",
+   "original_Page_11.jpg": "dbd82b197d9ea83fd718a5a02ded0ee0be9a483518b3a7068dc19d3e2fd24aef",
+   "original_Page_12.jpg": "a21e1dc59b67e49cfb9fccc354daee070cc9c8136b8f0ef27e55fbd31d3a47c4",
+   "original_Page_13.jpg": "7ec46a7536d7c10c53b1ebd3fb4f9cdc6f70102e6452f047016351535be79dea",
+   "original_Page_14.jpg": "4c1f568864d742a3eb9f519c4aed1dd96a3cb6f7fbf7b9f129a8b4613b798e42",
+   "original_Page_15.jpg": "0812e8c375139961c7a51e69f387538a4c4e90ec2c48937991cd1dad5a6b8f6e",
+   "original_Page_16.jpg": "3b8c4057bbd5e01d295f7d3173959b17635312ba1aa90372ccb1a809db843e74",
+   "original_Page_17.jpg": "de730167a265c50b4b6ed6ad61a7c423b855e6a6fedcac69a19ec014f270060f",
+   "original_Page_18.jpg": "c87f19771185d55b8dfbb2198601ba64ce47f4fd5d47651ef0ecffb9181ee99b",
+   "original_Page_19.jpg": "a1afb0a2ea4e246b4618785212c2349e8c5141e8b18d20add985e7361f740e89",
+   "original_Page_20.jpg": "30732deed2d4af1c6011ec80b86414d08405aaafd5376c7459725598982b3307",
+   "original_Page_21.jpg": "0e1f00215e98107d9f127c5d36de79d99f1c86f57a5a9eaf1342cdc822ee6061",
+   "original_Page_22.jpg": "1f2f485ce5bf2b87df68c234393aabbb0de53be63ca901b6e96c85e9b1b915ed",
+   "original_Page_23.jpg": "b06f6464f937632acfcd117ca683d1dbbcda213891408639e0fe71cf7d8e3bb0",
+   "original_Page_24.jpg": "443879a1b0c533cc18a35745cdadb2098cc6a63364a2fb03f2a7a3e18cb099f0",
+   "original_Page_25.jpg": "7cb3622e0fcf868a68a556e86ca7ff2013a94d307d3722bd33f77cb20ce91168",
+   "original_Page_26.jpg": "ec00107b6ec53992f62fa9416a31caa9e63ab8e785bddb80bcbda1c4a0c02246",
+   "original_Page_27.jpg": "baa3097e948e2e46ad2c0a9d16217799c8b3b60a3ccb8a87113edd3fea5f924f",
+   "original_Page_28.jpg": "2e5af346fb48539ab982c53b41229f686e671d80a76804615509555eeac49255",
+   "original_Page_29.jpg": "7aa2d6a871f2e95b1bc78ee3c8901ad929cf959bfac0a39699e526651d0e2afb",
+   "original_Page_30.jpg": "a8b4637c1d7d86e7789b98b84c334423ea649cc7d998631c7e44fec5dde8959f",
+   "original_Page_31.jpg": "7e71e143e42823744a3e8466ae02e196cb4b2e2ff7b59af3c1aeaa8d4c9631a9",
+   "original_Page_32.jpg": "61ef45c0e1f4206d52974f3e20926c1b3e33422b37dbda51249e2fec4ced4833",
+   "original_Page_33.jpg": "11ff7950b423fbea4bc5c2456c14703be2e5285158533a9e6ec45e4fcd85ddb2",
+   "original_Page_34.jpg": "4a2bee3e7687d2d22430efe1268baf0c02b6ed61893817761a0dc03d06781d9a",
+   "original_Page_35.jpg": "f66bbfdf39abc3fb22da8e6ee0c175c1d030e5f7323ec3633f69b3ccd33cbe30",
+   "original_Page_36.jpg": "c4e0916cc22f4f4f82966cc46db0abc51b15e0b1faf2112cdd781a0adc1311ad",
+   "original_Page_37.jpg": "8f501c1fe48f1b4279979d2e3d0e8e9e080206389a878be39de0fcb42a8401ef",
+   "original_Page_38.jpg": "ec86da81602ffd48a5e55a7e53d27087295a217ab23da6038bd9ce7829f0c29c",
+   "original_Page_39.jpg": "52f2b87d0c8366c729c6b721cb5aa5872b8d8d324fa4d381835d2add759531f3",
+   "original_Page_40.jpg": "0f70500c2925615605c72a8937f5654e194c898210b61bed1c9f606190ddceae",
+   "original_Page_41.jpg": "b55cd2e0254ac2421c4156dc0c148dfcc973f167df057e08ecd1e7b05c165c17",
+   "original_Page_42.jpg": "dff52934ecc0f7987510cad86c13a508aa49b65c375f1180100e0bc7c2844fb2"
+  },
+  "look_config": "31eeb658d111c383a5f666767f949e594180fb95afd2960fc5ffe3aa9799b0b9"
+ },
+ "config": {
+  "seed": 1234,
+  "paths": {
+   "ply": "ref/3d/wall.ply",
+   "photos": "ref/2d/original",
+   "drawings": "ref/2d/drawing",
+   "bake_dir": "data/bake",
+   "public_dir": "public/wall"
+  },
+  "inspect": {
+   "nn_patch_vertices": 50000,
+   "side_on_deg": 60
+  },
+  "photos": {
+   "photo_mm_per_px": 1.0,
+   "reference": "original_Page_06",
+   "exclude": [
+    "original_Page_05",
+    "original_Page_37",
+    "original_Page_41",
+    "original_Page_38",
+    "original_Page_39"
+   ],
+   "shadow_L": 20.0,
+   "highlight_L": 95.0,
+   "green_a_max": -2.0,
+   "soil_hue_deg": [
+    45.0,
+    110.0
+   ],
+   "soil_chroma": 24.0,
+   "mask_grow_px": 2,
+   "delight_sigma_px": 60.0,
+   "palette_k": 5,
+   "palette_blur_px": 4.0,
+   "palette_samples_per_photo": 6000,
+   "kmeans_iters": 25,
+   "color_blur_px": 2.0,
+   "grain_hp_sigma_px": 8.0,
+   "grain_fit_band_px": [
+    3.0,
+    40.0
+   ],
+   "grain_check_band_px": [
+    3.0,
+    16.0
+   ],
+   "color_fit_band_px": [
+    10.0,
+    150.0
+   ]
+  },
+  "detail": {
+   "grain_source": "reference",
+   "size_px": 512,
+   "mm_per_px": 0.5,
+   "max_wavelength_mm": 24.0,
+   "rolloff_wavelength_mm": 1.0,
+   "rms_slope": 0.5,
+   "pit_density": 0.01,
+   "pit_radius_mm": [
+    0.8,
+    2.0
+   ],
+   "pit_depth": 0.8,
+   "webp_quality": 90
+  },
+  "align": {
+   "flip_normal": false,
+   "roll_degrees": 0.0,
+   "real_width_m": 0.0,
+   "provisional_width_m": 10.0,
+   "fine_edge_max": 150.0,
+   "up_axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "preview_width_px": 2000
+  },
+  "grid": {
+   "target_width_px": 3072,
+   "cap_edge_max": 600.0,
+   "max_facing_deg": 80.0,
+   "max_hole_px": 4000,
+   "edge_crop_px": 3,
+   "open_px": 8,
+   "smooth_trim_band_mm": 400.0,
+   "smooth_trim_rough": 0.0,
+   "bottom_crop_mm": 180.0
+  },
+  "register": {
+   "figure_chroma": 35.0,
+   "purple_b_minus_g": 0.0,
+   "background_rgb": [
+    206,
+    202,
+    199
+   ],
+   "background_tol": 8.0,
+   "background_flat_std": 2.0,
+   "coarse_factor": 1,
+   "feature_sigma_px": 3.0,
+   "calib_pages": [
+    10,
+    14,
+    26,
+    31
+   ],
+   "calib_page_mm_per_px": [
+    0.3,
+    3.0
+   ],
+   "calib_n_scales": 22,
+   "calib_rot_deg": 20.0,
+   "calib_rot_step": 4.0,
+   "calib_lights": [
+    [
+     0.0,
+     45.0
+    ]
+   ],
+   "accept_score": 6.0,
+   "reg_scale_range": 1.15,
+   "reg_n_scales": 9,
+   "reg_rot_deg": 4.0,
+   "reg_rot_step": 1.0
+  },
+  "layers": {
+   "facet_sigma_px": 1.2,
+   "large_sigma_mm": 300.0,
+   "low_weight": 0.15,
+   "curvature_scales_px": [
+    1.0,
+    2.0,
+    4.0
+   ],
+   "ao_scales_px": [
+    2.0,
+    4.0,
+    8.0,
+    16.0,
+    32.0
+   ],
+   "ao_strength": 6.0,
+   "ao_min": 0.35
+  },
+  "emboss": {
+   "enabled": false,
+   "brown_depth_mm": 4.0,
+   "purple_depth_mm": 2.5,
+   "edge_mm": 3.0,
+   "roughness": 0.35,
+   "rough_scale_mm": 6.0
+  },
+  "normals": {
+   "normal_strength": 1.0
+  },
+  "albedo": {
+   "seed_offset": 7,
+   "lambda_min_mm": 30.0,
+   "lambda_max_mm": 1500.0,
+   "psd_slope": -1.8,
+   "palette_snap": 0.35,
+   "palette_tau": 6.0,
+   "edge_L": 5.0,
+   "edge_chroma": -0.8,
+   "cavity_L": 9.0,
+   "cavity_a": 1.0,
+   "cavity_b": 1.5,
+   "bedding_L": 1.5,
+   "bedding_lambda_mm": [
+    20.0,
+    400.0
+   ],
+   "stain_fraction": 0.1,
+   "stain_strength": 0.6,
+   "stain_elong": 2.5,
+   "stain_lambda_mm": [
+    60.0,
+    800.0
+   ],
+   "chalk_fraction": 0.08,
+   "chalk_strength": 0.5,
+   "chalk_dL": 6.0,
+   "chalk_lambda_mm": [
+    40.0,
+    500.0
+   ],
+   "carve_dL": 2.0,
+   "fit_to": "reference",
+   "fit_std_scale": 0.8
+  },
+  "carve_demo": {
+   "page": 6,
+   "cell_mm": 800.0,
+   "center_grid_px": [
+    1900,
+    700
+   ],
+   "render_mm_per_px": 1.0,
+   "depth_mm": 2.0,
+   "edge_mm": 1.5,
+   "pecks_per_mm2": 0.15,
+   "peck_radius_mm": [
+    1.0,
+    2.5
+   ],
+   "peck_depth_mm": [
+    0.5,
+    1.5
+   ],
+   "carve_dL": 3.0,
+   "variants": [
+    {
+     "depth_mm": 4.0,
+     "edge_mm": 0.8,
+     "detail_strength": 0.5,
+     "base_normal_scale": 0.6
+    },
+    {
+     "depth_mm": 5.0,
+     "edge_mm": 3.0,
+     "detail_strength": 0.4,
+     "base_normal_scale": 0.5,
+     "carve_dL": 3.0
+    },
+    {
+     "depth_mm": 8.0,
+     "edge_mm": 5.0,
+     "detail_strength": 0.35,
+     "base_normal_scale": 0.5,
+     "carve_dL": 6.0
+    }
+   ]
+  },
+  "export": {
+   "look_config": "tools/wall_bake/demo/assets/config.json",
+   "normal_quality": 90,
+   "overview_normal_quality": 85,
+   "albedo_quality": 80,
+   "full_ao_quality": 70,
+   "overview_ao_quality": 30,
+   "overview_long_side": 1024,
+   "placement_margin_mm": 150.0
+  }
+ }
+}

@@ -1,0 +1,167 @@
+# Wall bake configuration. See WALL_BAKE.md.
+# Paths are relative to the repo root.
+
+seed = 1234
+
+[paths]
+ply = "ref/3d/wall.ply"
+photos = "ref/2d/original"
+drawings = "ref/2d/drawing"
+bake_dir = "data/bake"
+public_dir = "public/wall"
+
+[inspect]
+nn_patch_vertices = 50000     # vertices sampled for the KD-tree NN distance check
+side_on_deg = 60              # faces with |angle to PCA normal| in (side_on_deg, 180-side_on_deg) count as side-on
+
+[photos]
+photo_mm_per_px = 1.0         # TODO: estimate by eye (figure size vs. motif chart)
+reference = "original_Page_06"   # main visual reference when photo styles clash
+# dropped: near-duplicates (05 of 04, 37 of 36, 41 of 40) and harsh direct-sun shots (38, 39)
+exclude = ["original_Page_05", "original_Page_37", "original_Page_41", "original_Page_38", "original_Page_39"]
+# pixel mask (Lab thresholds)
+shadow_L = 20.0               # below = deep shadow, excluded
+highlight_L = 95.0            # above = blown highlight, excluded
+green_a_max = -2.0            # a below (with b > 0) = vegetation / green-cast shade, excluded
+soil_hue_deg = [45.0, 110.0]  # hue range of orange/yellow soil ...
+soil_chroma = 24.0            # ... excluded only if chroma is above this
+mask_grow_px = 2              # grow excluded regions by this many px
+# approximate de-lighting: L / blur(L)
+delight_sigma_px = 60.0
+# palette
+palette_k = 5
+palette_blur_px = 4.0         # k-means on slightly blurred color: regions, not speckle
+palette_samples_per_photo = 6000
+kmeans_iters = 25
+# spectra
+color_blur_px = 2.0           # low-pass before the color-scale spectrum
+grain_hp_sigma_px = 8.0       # high-pass for the grain spectrum
+grain_fit_band_px = [3.0, 40.0]  # wavelengths (photo px) used for the power-law fit
+grain_check_band_px = [3.0, 16.0]  # shared band for photo vs detail-render comparison
+color_fit_band_px = [10.0, 150.0]  # wavelengths used for the color-scale PSD slope
+
+[detail]
+grain_source = "reference"    # "reference" (photos.reference) or "pooled" (all kept photos)
+size_px = 512
+mm_per_px = 0.5               # tile px size; tile_mm = size_px * mm_per_px (256 mm)
+max_wavelength_mm = 24.0      # longer wavelengths are left to the base normal map
+rolloff_wavelength_mm = 1.0   # soft cut below this (finer than the photos resolve)
+rms_slope = 0.5               # encoded slope scale; the shader's detail_strength multiplies it
+pit_density = 0.01            # pits per mm^2 (pecked-dot look)
+pit_radius_mm = [0.8, 2.0]    # uniform range
+pit_depth = 0.8               # in units of the noise height RMS
+webp_quality = 90
+
+[align]
+flip_normal = false
+roll_degrees = 0.0
+real_width_m = 0.0            # TODO: real panel width, to be confirmed by the team.
+provisional_width_m = 10.0    # used (with a warning) while real_width_m = 0; aspect 49.3k x 22.9k units
+fine_edge_max = 150.0         # faces with longest edge below this (scan units) define the wall plane
+up_axis = [0.0, 0.0, 1.0]     # scan axis that should point up in the image (projected onto the wall plane)
+preview_width_px = 2000
+
+[grid]
+target_width_px = 3072        # grid px size = wall width / this (~3.3 mm/px at 10 m)
+cap_edge_max = 600.0          # cull faces with longest edge above this (scan units): the solid's coarse cap
+max_facing_deg = 80.0         # cull faces whose normal is more than this from +z
+max_hole_px = 4000            # fill holes up to this area (px)
+edge_crop_px = 3              # erode the valid mask
+open_px = 8                   # morphological opening of the valid mask (removes thin shards)
+smooth_trim_band_mm = 400.0   # near the outer edge, drop regions smoother than real rock (cap/base walls)
+smooth_trim_rough = 0.0       # set from the data: roughness threshold (0 = auto, p5 of the interior)
+bottom_crop_mm = 180.0        # the solid's flat base along the bottom edge
+
+[register]
+figure_chroma = 35.0          # max(rgb)-min(rgb) above this = painted figure
+purple_b_minus_g = 0.0        # figure px with b - g above this are purple, else brown
+background_rgb = [206, 202, 199]
+background_tol = 8.0
+background_flat_std = 2.0
+coarse_factor = 1             # match at full grid res (~3.4 mm/px)
+feature_sigma_px = 3.0        # high-pass sigma at match resolution
+calib_pages = [10, 14, 26, 31]
+calib_page_mm_per_px = [0.3, 3.0]
+calib_n_scales = 22
+calib_rot_deg = 20.0
+calib_rot_step = 4.0
+calib_lights = [[0.0, 45.0]]
+accept_score = 6.0            # peak-to-sidelobe ratio; revisit after calibration
+reg_scale_range = 1.15
+reg_n_scales = 9
+reg_rot_deg = 4.0
+reg_rot_step = 1.0
+
+[layers]
+facet_sigma_px = 1.2          # smooths the mesh's flat triangle facets
+large_sigma_mm = 300.0        # 'low' = large-scale form
+low_weight = 0.15             # final = detail + low_weight * low
+curvature_scales_px = [1.0, 2.0, 4.0]
+ao_scales_px = [2.0, 4.0, 8.0, 16.0, 32.0]
+ao_strength = 6.0             # ao = exp(-ao_strength * cavity)
+ao_min = 0.35
+
+[emboss]
+enabled = false               # skipped for now (user decision 2026-09-27); registration unsolved
+brown_depth_mm = 4.0          # pecked figures
+purple_depth_mm = 2.5         # second group, shallower
+edge_mm = 3.0                 # soft edge (gaussian sigma)
+roughness = 0.35              # pecked interior: depth varies by +-this fraction
+rough_scale_mm = 6.0
+
+[normals]
+normal_strength = 1.0
+
+[albedo]
+seed_offset = 7
+lambda_min_mm = 30.0          # color noise band
+lambda_max_mm = 1500.0
+psd_slope = -1.8              # from look.json color_scale (overridden if present)
+palette_snap = 0.35           # pull toward the reference palette colors
+palette_tau = 6.0             # softmax temperature (Lab distance)
+edge_L = 5.0                  # convex edges lighter ...
+edge_chroma = -0.8            # ... and paler
+cavity_L = 9.0                # cavities darker ...
+cavity_a = 1.0                # ... and warmer
+cavity_b = 1.5
+bedding_L = 1.5               # subtle horizontal banding
+bedding_lambda_mm = [20.0, 400.0]
+stain_fraction = 0.10         # area fraction of dark grey-violet stains
+stain_strength = 0.6
+stain_elong = 2.5             # vertical elongation (runs down-slope)
+stain_lambda_mm = [60.0, 800.0]
+chalk_fraction = 0.08         # pale chalky patches
+chalk_strength = 0.5
+chalk_dL = 6.0
+chalk_lambda_mm = [40.0, 500.0]
+carve_dL = 2.0                # carved figures slightly lighter (fresher stone)
+fit_to = "reference"          # mean/std match target: "reference" (Page 06) or "pooled"
+fit_std_scale = 0.8           # albedo is low-frequency; leave room for shading/grain contrast
+
+[carve_demo]
+page = 6                      # drawing/photo page used as the test "user drawing"
+cell_mm = 800.0               # one book-grid cell (ref/size_reference.png: panel ~10 cells wide). Provisional.
+center_grid_px = [1900, 700]  # a flat part of the central panel
+render_mm_per_px = 1.0
+depth_mm = 2.0                # base depression of the pecked area
+edge_mm = 1.5
+pecks_per_mm2 = 0.15
+peck_radius_mm = [1.0, 2.5]
+peck_depth_mm = [0.5, 1.5]
+carve_dL = 3.0                # fresh-stone lightening inside the carving
+# each variant overrides the keys above; base_normal_scale scales the scan normals' xy, detail_strength the grain
+variants = [
+  {depth_mm = 4.0, edge_mm = 0.8, detail_strength = 0.5, base_normal_scale = 0.6},
+  {depth_mm = 5.0, edge_mm = 3.0, detail_strength = 0.4, base_normal_scale = 0.5, carve_dL = 3.0},
+  {depth_mm = 8.0, edge_mm = 5.0, detail_strength = 0.35, base_normal_scale = 0.5, carve_dL = 6.0},
+]
+
+[export]
+look_config = "tools/wall_bake/demo/assets/config.json"   # settings picked in the demo
+normal_quality = 90
+overview_normal_quality = 85
+albedo_quality = 80
+full_ao_quality = 70           # AO lives in the albedo alpha; WebP alpha is expensive
+overview_ao_quality = 30       # ~2% AO error, invisible at overview zoom; keeps first visit under 300 KB
+overview_long_side = 1024
+placement_margin_mm = 150.0

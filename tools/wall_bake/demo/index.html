@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>암각화 새김 데모</title>
+<style>
+  :root { --bg: #16161a; --panel: #202026; --text: #e8e4e0; --muted: #9a948e; --accent: #c98f6d; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  #app { display: flex; height: 100%; }
+  #view { position: relative; flex: 1; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+  #hint { position: absolute; left: 12px; bottom: 10px; color: var(--muted); font-size: 12px; pointer-events: none;
+    text-shadow: 0 1px 2px #000; }
+  #status { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+  #panel { width: 300px; flex: none; overflow-y: auto; background: var(--panel); padding: 12px 14px 20px; }
+  h2 { font-size: 12px; font-weight: 600; color: var(--accent); margin: 16px 0 6px; letter-spacing: .02em; }
+  h2:first-child { margin-top: 0; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin: 6px 0 8px; }
+  .row label { color: var(--text); }
+  .row small { color: var(--muted); font-size: 11px; }
+  .row output { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .row input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  button { background: #2e2e36; color: var(--text); border: 1px solid #3a3a44; border-radius: 6px;
+    padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); color: #1a1310; border-color: var(--accent); }
+  textarea { width: 100%; height: 90px; background: #15151a; color: var(--muted); border: 1px solid #333;
+    border-radius: 6px; font: 11px ui-monospace, monospace; resize: vertical; }
+  @media (max-width: 760px) {
+    #app { flex-direction: column; }
+    #view { flex: none; height: 58vh; }
+    #panel { width: 100%; flex: 1; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="view">
+    <canvas id="c"></canvas>
+    <div id="status">불러오는 중…</div>
+    <div id="hint">클릭: 새김 위치 · 드래그: 이동 · 휠: 확대/축소</div>
+  </div>
+  <div id="panel">
+    <h2>빛 (Light)</h2>
+    <div class="btns">
+      <button data-preset="photo">사진 조명</button>
+      <button data-preset="rakeLeft">측광 · 왼쪽</button>
+      <button data-preset="rakeTop">측광 · 위</button>
+    </div>
+    <div id="sliders-light"></div>
+
+    <h2>바위 표면 (Rock surface)</h2>
+    <div id="sliders-rock"></div>
+
+    <h2>새김 (Carving) — 6쪽 그림</h2>
+    <div class="btns">
+      <button id="toggleCarve" class="on">새김 보이기</button>
+      <button id="gotoCarve">새김 위치로 확대</button>
+      <button id="fitAll">전체 보기</button>
+    </div>
+    <div id="sliders-carve"></div>
+
+    <h2>보기 (View)</h2>
+    <div id="sliders-view"></div>
+
+    <h2>설정 내보내기 (Settings)</h2>
+    <div class="btns"><button id="copy">설정 복사</button><button id="reset">기본값</button></div>
+    <textarea id="settings" readonly></textarea>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------- parameters
+const SLIDERS = {
+  light: [
+    ["azimuth", "빛 방향", "Azimuth, 0 = 위에서", 0, 360, 1, "°"],
+    ["elevation", "빛 높이", "Elevation above the wall", 3, 90, 1, "°"],
+    ["sun", "햇빛 세기", "Sun intensity", 0, 3, 0.01, ""],
+    ["shade", "그늘 밝기", "Ambient / shade fill", 0, 2, 0.01, ""],
+  ],
+  rock: [
+    ["stains", "얼룩", "Stains", 0, 1.5, 0.01, ""],
+    ["chalk", "흰 얼룩", "Pale chalky patches", 0, 1.5, 0.01, ""],
+    ["crevice", "틈 그늘", "Crevice shading (AO)", 0, 2, 0.01, ""],
+    ["bumps", "표면 굴곡", "Surface bumps (scan normals)", 0, 1.5, 0.01, ""],
+    ["grain", "입자", "Fine grain (detail texture)", 0, 1.5, 0.01, ""],
+  ],
+  carve: [
+    ["depth", "새김 깊이", "Depth", 0.5, 12, 0.1, " mm"],
+    ["bevel", "가장자리 경사", "Bevel width (σ)", 0.3, 8, 0.1, " mm"],
+    ["pecks", "쪼기 거칠기", "Peck roughness", 0, 1.5, 0.01, ""],
+    ["size", "그림 크기", "Drawing width", 200, 2000, 10, " mm"],
+    ["carveLight", "새김 밝기", "Fresh-stone lightening", 0, 0.4, 0.01, ""],
+  ],
+  view: [
+    ["exposure", "노출", "Exposure", 0.3, 2.5, 0.01, ""],
+  ],
+};
+const CARVE_KEYS = new Set(["depth", "bevel", "pecks"]);
+let meta, params = {}, defaults = {};
+
+// ---------------------------------------------------------------- GL setup
+const canvas = document.getElementById("c");
+const gl = canvas.getContext("webgl2", { antialias: false });
+const statusEl = document.getElementById("status");
+
+const VS = `#version 300 es
+in vec2 aPos; out vec2 vPos;
+void main() { vPos = vec2(aPos.x * 0.5 + 0.5, 0.5 - aPos.y * 0.5); gl_Position = vec4(aPos, 0.0, 1.0); }`;
+
+// Lighting contract of WALL_BAKE.md, plus live layer sliders for the demo.
+const FS = `#version 300 es
+precision highp float;
+in vec2 vPos; out vec4 frag;
+uniform vec2 uCenter, uExtent, uWallMM;
+uniform float uTileMM;
+uniform sampler2D uNormal, uAlbedo, uLayers, uDetail, uCarve;
+uniform float uBumps, uGrain, uStains, uChalk, uCrevice, uCavityL, uSun, uShade, uCarveLight, uShowCarve, uExposure;
+uniform vec3 uStainCol, uChalkCol, uSunCol, uSkyCol, uGroundCol, uL;
+uniform vec4 uCarveRect;
+vec3 toLin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
+vec3 toSrgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+void main() {
+  vec2 uv = uCenter + (vPos - 0.5) * uExtent;
+  vec3 bg = vec3(0.075, 0.075, 0.085);
+  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) { frag = vec4(bg, 1.0); return; }
+  vec4 lay = texture(uLayers, uv);                       // r = AO, g = stain, b = chalk, a = valid
+  if (lay.a < 0.5) { frag = vec4(bg, 1.0); return; }
+
+  vec3 nBase = texture(uNormal, uv).xyz * 2.0 - 1.0;
+  vec3 nDetail = texture(uDetail, uv * uWallMM / uTileMM).xyz * 2.0 - 1.0;
+  vec3 n = normalize(vec3(uBumps * nBase.xy + uGrain * nDetail.xy, nBase.z));   // whiteout blend
+  float carved = 0.0;
+  vec2 cuv = (uv - uCarveRect.xy) / uCarveRect.zw;
+  if (uShowCarve > 0.5 && all(greaterThanEqual(cuv, vec2(0.0))) && all(lessThanEqual(cuv, vec2(1.0)))) {
+    vec4 c = texture(uCarve, cuv);
+    vec3 nCarve = c.xyz * 2.0 - 1.0;
+    n = normalize(vec3(n.xy + nCarve.xy, n.z));                                // same blend
+    carved = c.a;
+  }
+
+  vec3 albedo = toLin(texture(uAlbedo, uv).rgb);
+  albedo = mix(albedo, uStainCol, clamp(uStains * lay.g, 0.0, 1.0));
+  albedo = mix(albedo, uChalkCol, clamp(uChalk * lay.b, 0.0, 1.0));
+  float cav = 1.0 - lay.r;
+  albedo *= pow(max(1.0 - uCrevice * uCavityL * cav / 76.0, 0.05), 3.0);    // Lab L drop -> linear
+  albedo *= 1.0 + uCarveLight * carved;
+  float ao = pow(max(lay.r, 1e-3), uCrevice);
+
+  float diffuse = max(dot(n, uL), 0.0);
+  vec3 ambient = mix(uGroundCol, uSkyCol, n.y * 0.5 + 0.5) * ao * uShade;
+  vec3 color = albedo * (uSunCol * uSun * diffuse + ambient) * uExposure;
+  frag = vec4(toSrgb(color), 1.0);
+}`;
+
+function compile(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+let prog, U = {};
+function initGL() {
+  prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, "aPos");
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const n = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const u = gl.getActiveUniform(prog, i); U[u.name] = gl.getUniformLocation(prog, u.name); }
+}
+
+function makeTexture(unit, source, { repeat = false, w, h } = {}) {
+  const t = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  if (source instanceof Uint8Array) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  const wrap = repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE;
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
+  return t;
+}
+
+async function loadBitmap(url) {
+  const blob = await (await fetch(url)).blob();
+  return createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+}
+
+// ---------------------------------------------------------------- carving (the app's carve layer)
+let drawingMask, drawingW, drawingH, carveTex;
+
+function extractMask(bitmap) {
+  const cv = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = cv.getContext("2d");
+  ctx.drawImage(bitmap, 0, 0);
+  const d = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
+  const m = new Float32Array(bitmap.width * bitmap.height);
+  for (let i = 0; i < m.length; i++) {
+    const r = d[4 * i], g = d[4 * i + 1], b = d[4 * i + 2];
+    m[i] = (Math.max(r, g, b) - Math.min(r, g, b)) > meta.figure_chroma ? 1 : 0;
+  }
+  return m;
+}
+
+function boxBlur(src, w, h, r) {           // one separable box pass, radius r (px)
+  if (r < 1) return src.slice();
+  const tmp = new Float32Array(src.length), out = new Float32Array(src.length), k = 1 / (2 * r + 1);
+  for (let y = 0; y < h; y++) {
+    let acc = 0; const row = y * w;
+    for (let x = -r; x <= r; x++) acc += src[row + Math.min(Math.max(x, 0), w - 1)];
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = acc * k;
+      acc += src[row + Math.min(x + r + 1, w - 1)] - src[row + Math.max(x - r, 0)];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let acc = 0;
+    for (let y = -r; y <= r; y++) acc += tmp[Math.min(Math.max(y, 0), h - 1) * w + x];
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = acc * k;
+      acc += tmp[Math.min(y + r + 1, h - 1) * w + x] - tmp[Math.max(y - r, 0) * w + x];
+    }
+  }
+  return out;
+}
+function gaussBlur(src, w, h, sigma) {      // three box passes ≈ gaussian
+  const r = Math.max(0, Math.round((Math.sqrt(12 * sigma * sigma / 3 + 1) - 1) / 2));
+  return boxBlur(boxBlur(boxBlur(src, w, h, r), w, h, r), w, h, r);
+}
+function mulberry32(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+
+function buildCarve() {
+  const w = drawingW, h = drawingH;
+  const mmPerPx = params.size / w;
+  const soft = gaussBlur(drawingMask, w, h, params.bevel / mmPerPx);
+  const height = new Float32Array(w * h);
+  for (let i = 0; i < height.length; i++) height[i] = -params.depth * soft[i];
+  // pecks: dense overlapping craters inside the drawing
+  const rnd = mulberry32(1234);
+  const inside = [];
+  for (let i = 0; i < drawingMask.length; i++) if (drawingMask[i] > 0.5) inside.push(i);
+  const nPecks = Math.round(inside.length * mmPerPx * mmPerPx * 0.15 * Math.min(params.pecks, 1.5) / 1.0);
+  for (let p = 0; p < nPecks && inside.length; p++) {
+    const i = inside[Math.floor(rnd() * inside.length)];
+    const cx = i % w, cy = (i / w) | 0;
+    const r = (1.0 + rnd() * 1.5) / mmPerPx, dep = (0.5 + rnd()) * params.pecks;
+    const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
+    const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const q = ((x - cx) ** 2 + (y - cy) ** 2) / (r * r);
+      if (q < 1) { const k = y * w + x; height[k] = Math.min(height[k], -params.depth * soft[k] - dep * (1 - q)); }
+    }
+  }
+  // carve normals (mm units), OpenGL +Y up: n = normalize(-dh/dx, +dh/drow, 1); alpha = soft mask
+  const px = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const k = y * w + x;
+    const dx = (height[y * w + Math.min(x + 1, w - 1)] - height[y * w + Math.max(x - 1, 0)]) / (2 * mmPerPx);
+    const dr = (height[Math.min(y + 1, h - 1) * w + x] - height[Math.max(y - 1, 0) * w + x]) / (2 * mmPerPx);
+    let nx = -dx, ny = dr, nz = 1; const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
+    px[4 * k] = (nx * 0.5 + 0.5) * 255; px[4 * k + 1] = (ny * 0.5 + 0.5) * 255;
+    px[4 * k + 2] = (nz * 0.5 + 0.5) * 255; px[4 * k + 3] = Math.min(1, soft[k] * 1.5) * 255;
+  }
+  if (carveTex) gl.deleteTexture(carveTex);
+  carveTex = makeTexture(4, px, { w, h });
+}
+
+// ---------------------------------------------------------------- view
+let view = { cx: 0.5, cy: 0.5, zoom: 1 };
+let carveUV = [0.5, 0.5];
+
+function extent() {
+  const A = meta.wall_mm[0] / meta.wall_mm[1], C = canvas.width / canvas.height;
+  return C < A ? [1 / view.zoom, (A / C) / view.zoom] : [(C / A) / view.zoom, 1 / view.zoom];
+}
+function screenToUV(sx, sy) {
+  const r = canvas.getBoundingClientRect(), e = extent();
+  return [view.cx + ((sx - r.left) / r.width - 0.5) * e[0], view.cy + ((sy - r.top) / r.height - 0.5) * e[1]];
+}
+function carveRect() {
+  const wu = params.size / meta.wall_mm[0], hu = params.size * (drawingH / drawingW) / meta.wall_mm[1];
+  return [carveUV[0] - wu / 2, carveUV[1] - hu / 2, wu, hu];
+}
+
+let dirty = true, carveDirty = true;
+function frame() {
+  if (carveDirty) { buildCarve(); carveDirty = false; dirty = true; }
+  if (dirty) { draw(); dirty = false; }
+  requestAnimationFrame(frame);
+}
+function draw() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  gl.viewport(0, 0, w, h);
+  const e = extent();
+  gl.uniform2f(U.uCenter, view.cx, view.cy);
+  gl.uniform2f(U.uExtent, e[0], e[1]);
+  gl.uniform2f(U.uWallMM, meta.wall_mm[0], meta.wall_mm[1]);
+  gl.uniform1f(U.uTileMM, meta.detail_tile_mm);
+  const az = params.azimuth * Math.PI / 180, el = params.elevation * Math.PI / 180;
+  gl.uniform3f(U.uL, Math.sin(az) * Math.cos(el), Math.cos(az) * Math.cos(el), Math.sin(el));
+  for (const [u, k] of [["uBumps", "bumps"], ["uGrain", "grain"], ["uStains", "stains"], ["uChalk", "chalk"],
+                        ["uCrevice", "crevice"], ["uSun", "sun"], ["uShade", "shade"], ["uCarveLight", "carveLight"],
+                        ["uExposure", "exposure"]]) gl.uniform1f(U[u], params[k]);
+  gl.uniform1f(U.uCavityL, meta.cavity_L);
+  gl.uniform1f(U.uShowCarve, showCarve ? 1 : 0);
+  gl.uniform3fv(U.uStainCol, meta.stain_lin);
+  gl.uniform3fv(U.uChalkCol, meta.chalk_lin);
+  gl.uniform3fv(U.uSunCol, meta.sun_color);
+  gl.uniform3fv(U.uSkyCol, meta.sky_color);
+  gl.uniform3fv(U.uGroundCol, meta.ground_color);
+  gl.uniform4fv(U.uCarveRect, carveRect());
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, carveTex);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+// ---------------------------------------------------------------- UI
+let showCarve = true;
+function buildSliders() {
+  for (const [group, list] of Object.entries(SLIDERS)) {
+    const host = document.getElementById("sliders-" + group);
+    for (const [key, ko, en, min, max, step, unit] of list) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `<label for="s-${key}">${ko} <small>${en}</small></label><output id="o-${key}"></output>
+        <input id="s-${key}" type="range" min="${min}" max="${max}" step="${step}">`;
+      host.appendChild(row);
+      const input = row.querySelector("input"), out = row.querySelector("output");
+      input.value = params[key];
+      const show = () => { out.textContent = (+params[key]).toFixed(step < 1 ? 2 : 0) + unit; };
+      show();
+      input.addEventListener("input", () => {
+        params[key] = +input.value; show(); updateSettings();
+        if (CARVE_KEYS.has(key)) carveDirty = true; else dirty = true;
+      });
+    }
+  }
+}
+function setParams(p) {
+  Object.assign(params, p);
+  for (const k of Object.keys(p)) {
+    const input = document.getElementById("s-" + k);
+    if (input) { input.value = params[k]; input.dispatchEvent(new Event("input")); }
+  }
+}
+function updateSettings() {
+  document.getElementById("settings").value = JSON.stringify(
+    { ...params, carve_center_mm: [+(carveUV[0] * meta.wall_mm[0]).toFixed(0), +(carveUV[1] * meta.wall_mm[1]).toFixed(0)] }, null, 1);
+}
+
+const PRESETS = {
+  photo: { azimuth: 315, elevation: 45 },
+  rakeLeft: { azimuth: 270, elevation: 12 },
+  rakeTop: { azimuth: 0, elevation: 12 },
+};
+document.querySelectorAll("[data-preset]").forEach(b =>
+  b.addEventListener("click", () => setParams(PRESETS[b.dataset.preset])));
+document.getElementById("toggleCarve").addEventListener("click", e => {
+  showCarve = !showCarve; e.target.classList.toggle("on", showCarve); dirty = true;
+});
+document.getElementById("gotoCarve").addEventListener("click", () => {
+  view = { cx: carveUV[0], cy: carveUV[1], zoom: Math.max(2, meta.wall_mm[0] / (params.size * 1.6)) }; dirty = true;
+});
+document.getElementById("fitAll").addEventListener("click", () => { view = { cx: 0.5, cy: 0.5, zoom: 1 }; dirty = true; });
+document.getElementById("reset").addEventListener("click", () => setParams(defaults));
+document.getElementById("copy").addEventListener("click", async () => {
+  updateSettings();
+  try { await navigator.clipboard.writeText(document.getElementById("settings").value); } catch (_) {}
+  document.getElementById("settings").select();
+});
+
+// pointer: drag = pan, click = place carving, wheel = zoom
+let drag = null;
+canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId);
+  drag = { x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy, moved: false }; });
+canvas.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.hypot(dx, dy) > 4) drag.moved = true;
+  if (drag.moved) {
+    const r = canvas.getBoundingClientRect(), ex = extent();
+    view.cx = drag.cx - dx / r.width * ex[0]; view.cy = drag.cy - dy / r.height * ex[1]; dirty = true;
+  }
+});
+canvas.addEventListener("pointerup", e => {
+  if (drag && !drag.moved) { carveUV = screenToUV(e.clientX, e.clientY); updateSettings(); dirty = true; }
+  drag = null;
+});
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const before = screenToUV(e.clientX, e.clientY);
+  view.zoom = Math.min(80, Math.max(0.8, view.zoom * Math.exp(-e.deltaY * 0.0015)));
+  const after = screenToUV(e.clientX, e.clientY);
+  view.cx += before[0] - after[0]; view.cy += before[1] - after[1]; dirty = true;
+}, { passive: false });
+window.addEventListener("resize", () => { dirty = true; });
+
+// ---------------------------------------------------------------- boot
+(async function main() {
+  if (!gl) { statusEl.textContent = "WebGL2를 지원하지 않는 브라우저입니다."; return; }
+  try {
+    meta = await (await fetch("assets/meta.json")).json();
+    defaults = { ...meta.defaults, exposure: 1.0 };
+    params = { ...defaults };
+    carveUV = meta.carve_center_uv.slice();
+    initGL();
+    const [nrm, alb, lay, det, drw] = await Promise.all(
+      ["normal.webp", "albedo.webp", "layers.webp", "detail.webp", "drawing.jpg"].map(f => loadBitmap("assets/" + f)));
+    makeTexture(0, nrm); makeTexture(1, alb); makeTexture(2, lay); makeTexture(3, det, { repeat: true });
+    gl.uniform1i(U.uNormal, 0); gl.uniform1i(U.uAlbedo, 1); gl.uniform1i(U.uLayers, 2);
+    gl.uniform1i(U.uDetail, 3); gl.uniform1i(U.uCarve, 4);
+    drawingW = drw.width; drawingH = drw.height; drawingMask = extractMask(drw);
+    buildSliders(); updateSettings();
+    statusEl.remove();
+    requestAnimationFrame(frame);
+  } catch (err) {
+    statusEl.textContent = "오류: " + err.message;
+    console.error(err);
+  }
+})();
+</script>
+</body>
+</html>

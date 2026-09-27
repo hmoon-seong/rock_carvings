@@ -1,4 +1,5 @@
 {
+ "brush_roughness": 1,
  "depth_mm": 6.5,
  "bevel_sigma_mm": 4.5,
  "peck_roughness": 0.18,

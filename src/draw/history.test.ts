@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { StrokeHistory } from "./history";
 
-const s = (color: number) => ({ color, size: 10, points: [0, 0] });
+const s = (color: number) => ({ color, size: 10, points: [0, 0], seed: 1 });
 
 describe("StrokeHistory", () => {
   it("undoes strokes one at a time", () => {

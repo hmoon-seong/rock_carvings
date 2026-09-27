@@ -198,3 +198,11 @@ body:not(.mode-draw) .float-btn { display: none; }
 .place-hint { margin: 0; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; }
 .place-hint small { color: #c0472b; font-size: 11px; min-height: 1.3em; }
 .place-only button.primary { padding: 11px 16px; }
+
+/* timelapse */
+#progress {
+  position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--accent);
+  transform: scaleX(0); transform-origin: 0 0; pointer-events: none; opacity: 0; transition: opacity 0.3s;
+}
+.timelapse #progress { opacity: 1; }
+.timelapse #panel .carve-only, .timelapse .zoom { opacity: 0.4; pointer-events: none; transition: opacity 0.3s; }

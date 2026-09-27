@@ -46,6 +46,8 @@ export interface PaletteColor {
  * except for its depth. The look keys drive the wall shader directly.
  */
 export interface LabSettings extends CarveStyle {
+  /** 붓 거칠기: 0 = even round groove, 1 = default pecked brush */
+  brush_roughness: number;
   purple_depth_ratio: number;
   fresh_stone_lightening: number;
   sun_intensity: number;
@@ -57,7 +59,9 @@ export interface LabSettings extends CarveStyle {
 }
 
 /** Keys that change the carve geometry (need a re-carve); the rest only change shading. */
-export const CARVE_KEYS: (keyof LabSettings)[] = ["depth_mm", "bevel_sigma_mm", "peck_roughness", "purple_depth_ratio"];
+export const CARVE_KEYS: (keyof LabSettings)[] = ["depth_mm", "bevel_sigma_mm", "peck_roughness", "purple_depth_ratio", "brush_roughness"];
+/** Keys that change the drawing masks themselves (the strokes must be re-rasterized). */
+export const RASTER_KEYS: (keyof LabSettings)[] = ["brush_roughness"];
 
 /**
  * App defaults for the lab and the light, in the format "설정 복사" copies:

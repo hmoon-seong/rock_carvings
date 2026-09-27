@@ -3,9 +3,9 @@
 import { buildCarve } from "./carve/carve";
 import { writeShadow } from "./carve/shadow";
 import { tracingLabels } from "./carve/tracing";
-import { BRUSH_MM, CARVE_KEYS, CARVE_MM_PER_PX, carveStyles, defaultLab, loadMeta, PALETTE, type WallMeta } from "./config";
+import { BRUSH_MM, CARVE_KEYS, CARVE_MM_PER_PX, RASTER_KEYS, carveStyles, defaultLab, loadMeta, PALETTE, type WallMeta } from "./config";
 import { Ink } from "./draw/ink";
-import { rasterizeMasks } from "./draw/strokes";
+import { countStamps, rasterizeMasks, setBrushRoughness } from "./draw/strokes";
 import { setupDrawTools } from "./ui/drawTools";
 import { Lab } from "./ui/lab";
 import { LightDial } from "./ui/lightDial";
@@ -244,14 +244,28 @@ async function main() {
   };
 
   // Shading sliders apply at once; carve sliders re-carve at most every ~120 ms while dragging.
+  // 붓 거칠기 changes the marks themselves: the paper redraws and the masks are rebuilt from the strokes.
   renderer.setLook(lab.settings);
+  setBrushRoughness(lab.settings.brush_roughness);
   let labTimer = 0;
+  let rasterDirty = false;
   lab.onChange = (settings, key) => {
     renderer.setLook(settings);
     if (key && !CARVE_KEYS.includes(key)) return;
+    if (!key || RASTER_KEYS.includes(key)) {
+      setBrushRoughness(settings.brush_roughness);
+      ink.redraw();
+      rasterDirty = true;
+    }
     if (labTimer) return;
     labTimer = window.setTimeout(() => {
       labTimer = 0;
+      if (rasterDirty && carve) {
+        const [, , wMM, hMM] = carve.rectMM;
+        const { masks, used } = rasterizeMasks(ink.strokes, palette.length, wMM, hMM, CARVE_MM_PER_PX);
+        Object.assign(carve, { masks, used });
+      }
+      rasterDirty = false;
       recarve();
     }, 120);
   };
@@ -264,9 +278,10 @@ async function main() {
   $("dialHost").appendChild(dial.el);
   // The carving's cast shadow depends on the light: recompute it at most once per frame.
   let shadowQueued = false;
+  let timelapseRunning = false;
   const relight = () => {
     shadowQueued = false;
-    if (!carve) return;
+    if (!carve || timelapseRunning) return;
     const { azimuth, elevation } = renderer.light;
     writeShadow(carve.rgba, carve.height, carve.w, carve.h, carve.mmPerPx, azimuth, elevation);
     renderer.updateCarve(carve.rgba);
@@ -390,6 +405,58 @@ async function main() {
   setMode("draw");
   setView("rock", false);
 
+  // ---------------------------------------------------------------- timelapse
+  // The carving is pecked mark by mark in drawing order. Frames are built at 2 mm/px (a quarter
+  // of the pixels) so they keep up; the full 1 mm/px carving replaces them at the end.
+  // A tap on the wall skips to the end.
+  const GUIDE_OPACITY = 0.35;
+  const TIMELAPSE_MM_PER_PX = 2;
+  const progress = $("progress");
+  let skipTimelapse = false;
+  view.addEventListener("pointerdown", () => {
+    if (timelapseRunning) skipTimelapse = true;
+  });
+  const timelapseFrame = (limit: number) => {
+    const c = carve!;
+    const styles = carveStyles(lab.settings);
+    const { masks, w, h, used } = rasterizeMasks(ink.strokes, palette.length, c.rectMM[2], c.rectMM[3], TIMELAPSE_MM_PER_PX, limit);
+    const layers = masks.flatMap((mask, i) => (used[i] ? [{ mask, style: styles[i] }] : []));
+    const mmPerPx = c.rectMM[2] / w;
+    const { rgba, height } = buildCarve(layers, { w, h, mmPerPx });
+    writeShadow(rgba, height, w, h, mmPerPx, renderer.light.azimuth, renderer.light.elevation, 1);
+    renderer.setCarve(rgba, w, h, c.rectMM);
+  };
+  const playTimelapse = async () => {
+    if (!carve) return;
+    timelapseRunning = true;
+    skipTimelapse = false;
+    document.body.classList.add("timelapse");
+    const total = countStamps(ink.strokes);
+    const frames = Math.min(48, Math.max(12, Math.ceil(total / 5)));
+    const duration = Math.min(7000, Math.max(3000, total * 22));
+    const t0 = performance.now();
+    let built = -1;
+    for (;;) {
+      await nextFrame();
+      const t = skipTimelapse ? 1 : Math.min(1, (performance.now() - t0) / duration);
+      progress.style.transform = `scaleX(${t})`;
+      if (t >= 1) break;
+      const f = Math.floor(t * frames);
+      if (f !== built) {
+        timelapseFrame(Math.round(((f + 1) / frames) * total));
+        built = f;
+      }
+    }
+    // Full-resolution carving, then the guide sketch fades away.
+    renderer.setCarve(carve.rgba, carve.w, carve.h, carve.rectMM);
+    timelapseRunning = false;
+    relight();
+    document.body.classList.remove("timelapse");
+    const g0 = +(inkCanvas.style.opacity || GUIDE_OPACITY);
+    await animate(700, (k) => (inkCanvas.style.opacity = String(g0 * (1 - smooth(k)))));
+    progress.style.transform = "scaleX(0)";
+  };
+
   carveBtn.addEventListener("click", async () => {
     if (busy || ink.strokes.length === 0) return;
     busy = true;
@@ -403,27 +470,38 @@ async function main() {
     carve = { masks, used, w, h, mmPerPx, rectMM, rgba: new Uint8Array(0), height: new Float32Array(0) };
     traceDirty = true;
     recarve();
-    renderer.carveAmount = 0;
+    renderer.carveAmount = 1;
     atHome = true;
     [camera.cx, camera.cy, camera.scale] = homeCamera();
     applyCamera();
     carveBtn.textContent = "새기기";
     setView("rock", false);
     setMode("carve");
+    setLight(defaultLight);
 
-    // Paper lifts off → paint on bare rock → paint sinks into the stone as the light swings round.
-    // Swing in from the upper left: with light from below, a cut can read as raised.
-    const az0 = defaultLight.azimuth - 70;
+    // Paper lifts off; the drawing stays as a faint guide sketch on the bare rock; then the timelapse.
     paper.style.transition = "none";
-    await animate(2600, (t) => {
-      paper.style.opacity = String(1 - smooth(t / 0.25));
-      inkCanvas.style.opacity = String(1 - smooth((t - 0.35) / 0.4));
-      renderer.carveAmount = smooth((t - 0.3) / 0.5);
-      const k = smooth(t);
-      setLight({ azimuth: az0 + (defaultLight.azimuth - az0) * k, elevation: defaultLight.elevation });
+    renderer.setCarve(new Uint8Array([128, 128, 0, 0]), 1, 1, carve.rectMM);
+    await animate(600, (t) => {
+      paper.style.opacity = String(1 - smooth(t));
+      inkCanvas.style.opacity = String(1 - (1 - GUIDE_OPACITY) * smooth(t));
     });
+    await playTimelapse();
     busy = false;
     wallHint.classList.add("show");
+  });
+
+  $("replay").addEventListener("click", async () => {
+    if (busy || !carve) return;
+    busy = true;
+    lab.toggle(false);
+    labBtn.setAttribute("aria-expanded", "false");
+    setView("rock");
+    await goHome();
+    renderer.setCarve(new Uint8Array([128, 128, 0, 0]), 1, 1, carve.rectMM);
+    await animate(300, (t) => (inkCanvas.style.opacity = String(GUIDE_OPACITY * smooth(t))));
+    await playTimelapse();
+    busy = false;
   });
 
   $("redraw").addEventListener("click", async () => {

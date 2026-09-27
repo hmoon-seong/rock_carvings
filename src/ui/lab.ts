@@ -18,6 +18,7 @@ const GROUPS: [string, Slider[]][] = [
       ["peck_roughness", "쪼기 거칠기", 0, 1.5, 0.01, num],
       ["purple_depth_ratio", "보라 깊이 비율", 0.1, 1, 0.01, (v) => `× ${v.toFixed(2)}`],
       ["fresh_stone_lightening", "새 돌 밝기", 0, 1, 0.01, num],
+      ["brush_roughness", "붓 거칠기", 0, 2.5, 0.01, num],
     ],
   ],
   [

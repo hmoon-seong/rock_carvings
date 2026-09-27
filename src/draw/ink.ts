@@ -2,7 +2,7 @@
 
 import type { PaletteColor } from "../config";
 import { StrokeHistory } from "./history";
-import { ERASER, strokePath, type Stroke } from "./strokes";
+import { ERASER, paintStroke, type Stroke } from "./strokes";
 
 export class Ink {
   readonly history = new StrokeHistory();
@@ -65,8 +65,8 @@ export class Ink {
     const all = this.active ? [...this.strokes, this.active] : this.strokes;
     for (const s of all) {
       ctx.globalCompositeOperation = s.color === ERASER ? "destination-out" : "source-over";
-      ctx.fillStyle = ctx.strokeStyle = s.color === ERASER ? "#000" : this.palette[s.color].hex;
-      strokePath(ctx, s, scale);
+      ctx.fillStyle = s.color === ERASER ? "#000" : this.palette[s.color].hex;
+      paintStroke(ctx, s, scale);
     }
     ctx.globalCompositeOperation = "source-over";
   }
@@ -85,7 +85,7 @@ export class Ink {
     if (!this.enabled || this.active || e.button > 0) return;
     this.canvas.setPointerCapture(e.pointerId);
     this.pointerId = e.pointerId;
-    this.active = { color: this.color, size: this.size, points: this.toMM(e) };
+    this.active = { color: this.color, size: this.size, points: this.toMM(e), seed: (Math.random() * 2 ** 31) | 0 };
     this.schedule();
   }
 

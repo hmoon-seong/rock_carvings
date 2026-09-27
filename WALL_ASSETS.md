@@ -58,13 +58,15 @@ The app builds this at runtime from the user's drawing (a mask), exactly as the 
 
 1. `soft = gaussianBlur(mask, bevel_sigma_mm)` (the demo uses 3 box-blur passes).
 2. `height = -depth_mm * soft`, then add **pecks**: random overlapping craters inside the mask. Radius 1–2.5 mm, depth (0.5–1.5) × peck_roughness mm, density 0.15 × roughness per mm² of drawing, seeded RNG.
-3. Carve normals in mm units: `n = normalize(-dh/dx, +dh/drow, 1)` (+Y up). Store rgb = n*0.5+0.5 and alpha = soft mask; sample it inside the carving's rectangle.
-4. Albedo inside the carving: `albedo *= 1 + fresh_stone_lightening * carveAlpha`.
+3. Carve normals in mm units: `n = normalize(-dh/dx, +dh/drow, 1)` (+Y up). Store rg = n.xy*0.5+0.5 and alpha = soft mask; sample it inside the carving's rectangle.
+4. **Cast shadow** (blue channel, 0 = lit, 1 = shadow): recomputed on the CPU whenever the light moves (`src/carve/shadow.ts`, a linear-time height-field sweep at 2 mm/px). The shader multiplies the diffuse term by `1 - shadow`. This is what makes a carving read as cut *in*: at el 12° a 12 mm cut throws a ~56 mm shadow across its floor. Without it, the bevel alone reads as a raised plate.
+5. Albedo inside the carving: `albedo *= 1 + fresh_stone_lightening * carveAlpha`.
 
 Defaults (`metadata.carving`): depth **12 mm**, bevel σ **3.8 mm**, peck roughness **0.79**, drawing width **700 mm**, lightening **0.38**.
 
 Lessons learned:
 - Carvings need **sloped walls** (a bevel of a few mm). Hairline edges vanish when zoomed out.
+- Carvings need their **cast shadow** to read as recessed; light from below can still flip them visually (the crater illusion), so animations keep the light above.
 - The carve layer should be about 1 mm/px, finer than the 3.4 mm/px wall textures.
 - Only place carvings where `placement_mask` = 255: a 150 mm margin from the edges, and it excludes a flat cap shard at the top right.
 

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f3efe9" />
+    <title>암각화몬</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body class="mode-draw">
+    <div id="app">
+      <main id="view">
+        <canvas id="wall" aria-label="반구대 바위 벽"></canvas>
+        <canvas id="trace" aria-label="도면"></canvas>
+        <div id="paper"></div>
+        <canvas id="ink" aria-label="그림판"></canvas>
+        <div id="brand">암각화몬 <span id="step">그리기</span></div>
+        <p id="hint">손가락으로 그려 보세요<br /><small>고래 · 사슴 · 사람 · 배</small></p>
+        <p id="wallhint">바위를 끌어서 빛을 돌려 보세요</p>
+        <div id="lab" class="sheet" hidden></div>
+        <div id="status">바위를 불러오는 중…</div>
+      </main>
+      <footer id="panel">
+        <div class="tools draw-only">
+          <div class="row">
+            <div class="chips" id="chips" role="radiogroup" aria-label="색"></div>
+            <span class="grow"></span>
+            <label class="size" title="굵기">
+              <span class="size-well"><i id="sizeDot"></i></span>
+              <input id="size" type="range" aria-label="굵기" />
+            </label>
+          </div>
+          <div class="row">
+            <button id="undo" class="text">되돌리기</button>
+            <button id="clear" class="text">모두 지우기</button>
+            <span class="grow"></span>
+            <button id="carve" class="primary">새기기</button>
+          </div>
+        </div>
+        <div class="tools carve-only">
+          <div class="dial-col">
+            <div id="dialHost"></div>
+            <small>측광</small>
+          </div>
+          <div class="col">
+            <div class="seg" id="viewSeg" role="radiogroup" aria-label="보기">
+              <button data-view="rock" role="radio">바위</button>
+              <button data-view="rubbing" role="radio">탁본</button>
+              <button data-view="tracing" role="radio">도면</button>
+            </div>
+            <div class="row">
+              <button id="labBtn" class="text" aria-expanded="false">실험실</button>
+              <span class="grow"></span>
+              <button id="redraw" class="text">다시 그리기</button>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

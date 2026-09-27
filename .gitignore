@@ -7,3 +7,5 @@ tools/wall_bake/demo/assets/*
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 *:Zone.Identifier
+node_modules/
+dist/

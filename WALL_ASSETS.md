@@ -48,7 +48,7 @@ fragColor = vec4(linearToSrgb(color), 1.0);
 ```
 
 - Light direction: `L = (sin(az)·cos(el), cos(az)·cos(el), sin(el))`. Azimuth 0 = light from the top of the image, 90 = from the right. The "측광" (raking light) slider just changes `az`/`el`.
-- Defaults (`metadata.lighting.default`, chosen by the user in the demo): az **36°**, el **12°**, sun_intensity **2.85**, ambient_intensity **0**, exposure **0.94**, detail_strength **0.32**. Colors: sun (1.0, 0.96, 0.90), sky (0.42, 0.45, 0.52), ground (0.30, 0.26, 0.24).
+- Bake-time defaults (`metadata.lighting.default`, chosen by the user in the demo; the app now overrides the look with `src/look.json`): az **36°**, el **12°**, sun_intensity **2.85**, ambient_intensity **0**, exposure **0.94**, detail_strength **0.32**. Colors: sun (1.0, 0.96, 0.90), sky (0.42, 0.45, 0.52), ground (0.30, 0.26, 0.24).
 - ambient_intensity 0 gives a dramatic raking look with black shadows. Raise it (about 0.6–1.0) for a soft daylight "photo" look. The AO only matters when ambient > 0.
 - Budget: at most 3 texture fetches + the carving layer. One directional light + hemisphere ambient. No loops, no shadow maps.
 
@@ -62,7 +62,7 @@ The app builds this at runtime from the user's drawing (a mask), exactly as the 
 4. **Cast shadow** (blue channel, 0 = lit, 1 = shadow): recomputed on the CPU whenever the light moves (`src/carve/shadow.ts`, a linear-time height-field sweep at 2 mm/px). The shader multiplies the diffuse term by `1 - shadow`. This is what makes a carving read as cut *in*: at el 12° a 12 mm cut throws a ~56 mm shadow across its floor. Without it, the bevel alone reads as a raised plate.
 5. Albedo inside the carving: `albedo *= 1 + fresh_stone_lightening * carveAlpha`.
 
-Defaults (`metadata.carving`): depth **12 mm**, bevel σ **3.8 mm**, peck roughness **0.79**, drawing width **700 mm**, lightening **0.38**.
+Bake-time defaults (`metadata.carving`): depth **12 mm**, bevel σ **3.8 mm**, peck roughness **0.79**, drawing width **700 mm**, lightening **0.38**. The app's current defaults are in `src/look.json` (picked in the 실험실): depth **6.5 mm**, bevel σ **4.5 mm**, peck roughness **0.18**, lightening **0.66**.
 
 Lessons learned:
 - Carvings need **sloped walls** (a bevel of a few mm). Hairline edges vanish when zoomed out.

@@ -14,9 +14,17 @@
         <canvas id="trace" aria-label="도면"></canvas>
         <div id="paper"></div>
         <canvas id="ink" aria-label="그림판"></canvas>
+        <div id="frame" aria-hidden="true"></div>
+        <button id="placeBtn" class="float-btn">자리 고르기</button>
         <div id="brand">암각화몬 <span id="step">그리기</span></div>
         <p id="hint">손가락으로 그려 보세요<br /><small>고래 · 사슴 · 사람 · 배</small></p>
-        <p id="wallhint">바위를 끌어서 빛을 돌려 보세요</p>
+        <p id="wallhint">끌어서 이동 · 두 손가락으로 확대</p>
+        <div id="zoomCtl" class="zoom">
+          <button id="zoomIn" aria-label="확대">+</button>
+          <button id="zoomOut" aria-label="축소">−</button>
+          <button id="zoomToggle" class="zoom-toggle">전체 보기</button>
+        </div>
+        <div id="scalebar" aria-hidden="true"><i></i><span></span></div>
         <div id="lab" class="sheet" hidden></div>
         <div id="status">바위를 불러오는 중…</div>
       </main>
@@ -36,6 +44,12 @@
             <span class="grow"></span>
             <button id="carve" class="primary">새기기</button>
           </div>
+        </div>
+        <div class="tools place-only">
+          <p class="place-hint">바위를 움직여 새길 자리를 고르세요<small id="placeMsg"></small></p>
+          <span class="grow"></span>
+          <button id="placeCancel" class="text">취소</button>
+          <button id="placeOk" class="primary">여기에 그리기</button>
         </div>
         <div class="tools carve-only">
           <div class="dial-col">

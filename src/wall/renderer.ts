@@ -1,6 +1,6 @@
 // WebGL2 wall renderer: one full-screen quad showing a mm rectangle of the wall.
 
-import { hexToRgb, PAPER_HEX, type WallMeta } from "../config";
+import { DEFAULT_LIGHT, hexToRgb, PAPER_HEX, sunColor, type LabSettings, type WallMeta } from "../config";
 import { FS, VS } from "./shaders";
 import type { WallImages } from "./textures";
 
@@ -32,8 +32,7 @@ export class WallRenderer {
     const gl = canvas.getContext("webgl2", { antialias: false, preserveDrawingBuffer: true });
     if (!gl) throw new Error("WebGL2");
     this.gl = gl;
-    const d = meta.lighting.default;
-    this.light = { azimuth: d.azimuth_deg, elevation: d.elevation_deg };
+    this.light = { ...DEFAULT_LIGHT };
     this.initProgram();
     const loop = () => {
       if (this.dirty && this.ready) this.draw();
@@ -57,6 +56,18 @@ export class WallRenderer {
   setDetail(img: ImageBitmap) {
     this.upload("detail", img, true);
     this.ready = true;
+    this.invalidate();
+  }
+
+  /** Shading from the lab sliders (sun, light color, shade, exposure, grain, lightening). */
+  setLook(look: LabSettings) {
+    const { gl, u } = this;
+    gl.uniform3fv(u.uSunCol, sunColor(this.meta.lighting.sun_color, look.sun_warmth));
+    gl.uniform1f(u.uSun, look.sun_intensity);
+    gl.uniform1f(u.uAmbient, look.ambient_intensity);
+    gl.uniform1f(u.uExposure, look.exposure);
+    gl.uniform1f(u.uDetailStrength, look.detail_strength);
+    gl.uniform1f(u.uLightening, look.fresh_stone_lightening);
     this.invalidate();
   }
 
@@ -110,15 +121,9 @@ export class WallRenderer {
     gl.uniform1i(this.u.uCarve, UNIT.carve);
 
     const L = this.meta.lighting;
-    gl.uniform3fv(this.u.uSunCol, L.sun_color);
     gl.uniform3fv(this.u.uSkyCol, L.sky_color);
     gl.uniform3fv(this.u.uGroundCol, L.ground_color);
-    gl.uniform1f(this.u.uSun, L.default.sun_intensity);
-    gl.uniform1f(this.u.uAmbient, L.default.ambient_intensity);
-    gl.uniform1f(this.u.uExposure, L.default.exposure);
-    gl.uniform1f(this.u.uDetailStrength, L.default.detail_strength);
     gl.uniform1f(this.u.uTileMM, this.meta.detail_tile_mm);
-    gl.uniform1f(this.u.uLightening, this.meta.carving.fresh_stone_lightening);
     gl.uniform3fv(this.u.uPaper, hexToRgb(PAPER_HEX).map((v) => v / 255));
     gl.uniform3f(this.u.uInkCol, 0.11, 0.105, 0.11);
 

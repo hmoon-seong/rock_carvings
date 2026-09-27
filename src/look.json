@@ -1,0 +1,14 @@
+{
+ "depth_mm": 6.5,
+ "bevel_sigma_mm": 4.5,
+ "peck_roughness": 0.18,
+ "purple_depth_ratio": 0.39,
+ "fresh_stone_lightening": 0.66,
+ "sun_intensity": 3.53,
+ "sun_warmth": 0.54,
+ "ambient_intensity": 0.05,
+ "exposure": 1.17,
+ "detail_strength": 0.3,
+ "azimuth_deg": 36,
+ "elevation_deg": 12
+}

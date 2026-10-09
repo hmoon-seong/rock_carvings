@@ -12,6 +12,8 @@ export interface CarveStyle {
 export interface CarveLayer {
   mask: Float32Array; // 0..1, row-major, w × h
   style: CarveStyle;
+  /** Keeps a layer's pecks stable when other layers come and go (default: its index). */
+  key?: number;
 }
 
 export interface CarveOptions {
@@ -19,6 +21,11 @@ export interface CarveOptions {
   h: number;
   mmPerPx: number;
   seed?: number;
+  /**
+   * Pixel offset of this buffer in a larger grid. Pecks are placed by grid position, so
+   * re-carving a part of a carving (with enough margin) gives exactly the same pixels.
+   */
+  origin?: [number, number];
 }
 
 export function mulberry32(a: number): () => number {
@@ -29,6 +36,14 @@ export function mulberry32(a: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** Uniform [0, 1) hash of a grid pixel, a seed and a channel (pecks are placed by position). */
+function hash01(x: number, y: number, seed: number, ch: number): number {
+  let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1) ^ Math.imul(seed, 0x9e3779b1) ^ Math.imul(ch + 1, 0x85ebca77);
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+  h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+  return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
 }
 
 /** Height field in mm (≤ 0) and the soft coverage used as the carve alpha. */
@@ -47,27 +62,35 @@ export function carveHeight(layers: CarveLayer[], opts: CarveOptions): { height:
     }
   }
 
-  // Pecks: dense overlapping craters inside each mask (the 면새김 texture).
+  // Pecks: dense overlapping craters inside each mask (the 면새김 texture). Each mask pixel
+  // holds a crater with a probability set by the roughness, placed by its grid position.
   const height = base.slice();
-  const rnd = mulberry32(opts.seed ?? 1234);
-  layers.forEach(({ mask, style }) => {
+  const seed = opts.seed ?? 1234;
+  const [ox, oy] = opts.origin ?? [0, 0];
+  layers.forEach(({ mask, style, key }, li) => {
     const rough = Math.min(style.peck_roughness, 1.5);
-    const inside: number[] = [];
-    for (let i = 0; i < n; i++) if (mask[i] > 0.5) inside.push(i);
-    const nPecks = Math.round(inside.length * mmPerPx * mmPerPx * 0.15 * rough);
-    for (let p = 0; p < nPecks; p++) {
-      const i = inside[Math.floor(rnd() * inside.length)];
-      const cx = i % w, cy = (i / w) | 0;
-      const r = (1.0 + rnd() * 1.5) / mmPerPx;
-      const dep = (0.5 + rnd()) * rough;
-      const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
-      const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
-      for (let y = y0; y <= y1; y++) {
-        for (let x = x0; x <= x1; x++) {
-          const q = ((x - cx) ** 2 + (y - cy) ** 2) / (r * r);
-          if (q < 1) {
-            const k = y * w + x;
-            height[k] = Math.min(height[k], base[k] - dep * (1 - q));
+    const rate = mmPerPx * mmPerPx * 0.15 * rough; // craters per pixel
+    if (rate <= 0) return;
+    const ch = (key ?? li) * 16;
+    for (let cy = 0; cy < h; cy++) {
+      for (let cx = 0; cx < w; cx++) {
+        if (mask[cy * w + cx] <= 0.5) continue;
+        const gx = cx + ox, gy = cy + oy;
+        const count = Math.floor(rate) + (hash01(gx, gy, seed, ch) < rate % 1 ? 1 : 0);
+        for (let p = 0; p < count; p++) {
+          const c2 = ch + 1 + 2 * p;
+          const r = (1.0 + hash01(gx, gy, seed, c2) * 1.5) / mmPerPx;
+          const dep = (0.5 + hash01(gx, gy, seed, c2 + 1)) * rough;
+          const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(w - 1, Math.ceil(cx + r));
+          const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(h - 1, Math.ceil(cy + r));
+          for (let y = y0; y <= y1; y++) {
+            for (let x = x0; x <= x1; x++) {
+              const q = ((x - cx) ** 2 + (y - cy) ** 2) / (r * r);
+              if (q < 1) {
+                const k = y * w + x;
+                height[k] = Math.min(height[k], base[k] - dep * (1 - q));
+              }
+            }
           }
         }
       }

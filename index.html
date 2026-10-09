@@ -12,15 +12,12 @@
       <main id="view">
         <canvas id="wall" aria-label="반구대 바위 벽"></canvas>
         <canvas id="trace" aria-label="도면"></canvas>
-        <div id="paper"></div>
         <canvas id="ink" aria-label="그림판"></canvas>
-        <div id="frame" aria-hidden="true"></div>
         <div id="progress" aria-hidden="true"></div>
         <div class="seg mode-seg" id="modeSeg" role="radiogroup" aria-label="모드">
           <button data-mode="free" role="radio">자유 그리기</button>
           <button data-mode="challenge" role="radio">도전 모드</button>
         </div>
-        <button id="placeBtn" class="float-btn">자리 고르기</button>
         <button id="wallBtn" class="float-btn float-left">모두의 벽</button>
         <div id="marks" aria-hidden="true"></div>
         <div id="hl" aria-hidden="true"></div>
@@ -42,7 +39,7 @@
         </div>
         <div id="toast" role="status"></div>
         <div id="brand">암각화몬 <span id="step">그리기</span></div>
-        <p id="hint">손가락으로 그려 보세요<br /><small>고래 · 사슴 · 사람 · 배</small></p>
+        <p id="hint">손가락으로 바위에 그려 보세요<br /><small>손을 떼면 바로 새겨져요 · 두 손가락으로 옮기기</small></p>
         <p id="wallhint">끌어서 이동 · 두 손가락으로 확대</p>
         <div id="zoomCtl" class="zoom">
           <button id="zoomIn" aria-label="확대">+</button>
@@ -67,15 +64,9 @@
             <button id="undo" class="text">되돌리기</button>
             <button id="clear" class="text">모두 지우기</button>
             <span class="grow"></span>
-            <button id="carve" class="primary">새기기</button>
+            <button id="carve" class="primary">완성</button>
             <button id="done" class="primary">다 그렸어요</button>
           </div>
-        </div>
-        <div class="tools place-only">
-          <p class="place-hint">바위를 움직여 새길 자리를 고르세요<small id="placeMsg"></small></p>
-          <span class="grow"></span>
-          <button id="placeCancel" class="text">취소</button>
-          <button id="placeOk" class="primary">여기에 그리기</button>
         </div>
         <div class="tools result-only">
           <div class="result-head">
@@ -113,7 +104,7 @@
               <button id="labBtn" class="text" aria-expanded="false">실험실</button>
               <button id="replay" class="text">타임랩스</button>
               <span class="grow"></span>
-              <button id="redraw" class="text">다시 그리기</button>
+              <button id="redraw" class="text">더 그리기</button>
             </div>
           </div>
           </div>

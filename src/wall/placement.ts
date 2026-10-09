@@ -28,7 +28,7 @@ export async function loadPlacementMask(meta: WallMeta): Promise<PlacementMask> 
   return { data, w, h, wallW: meta.width_mm, wallH: meta.height_mm };
 }
 
-function allowedAt(m: PlacementMask, xmm: number, ymm: number): boolean {
+export function allowedAt(m: PlacementMask, xmm: number, ymm: number): boolean {
   const x = Math.floor((xmm / m.wallW) * m.w), y = Math.floor((ymm / m.wallH) * m.h);
   return x >= 0 && y >= 0 && x < m.w && y < m.h && m.data[y * m.w + x] === 1;
 }

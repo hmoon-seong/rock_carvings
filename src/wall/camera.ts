@@ -4,6 +4,7 @@ export interface CameraLimits {
   wallW: number; // mm
   wallH: number; // mm
   minScale: number; // most zoomed in, mm per px
+  maxScale?: number; // most zoomed out (default: the whole wall)
 }
 
 export class Camera {
@@ -51,7 +52,7 @@ export function fitScale(vw: number, vh: number, lim: CameraLimits): number {
 }
 
 function clampScale(s: number, vw: number, vh: number, lim: CameraLimits): number {
-  return Math.min(fitScale(vw, vh, lim), Math.max(lim.minScale, s));
+  return Math.min(fitScale(vw, vh, lim), lim.maxScale ?? Infinity, Math.max(lim.minScale, s));
 }
 
 /** A "nice" scale-bar length (1, 2 or 5 × 10^n mm) close to `targetMM`. */

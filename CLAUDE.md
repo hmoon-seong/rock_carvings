@@ -8,6 +8,8 @@ This is a student team prototype for a local program. Favor simple, robust solut
 
 **Change of plan (2026-09-27):** we no longer build physical carving tools (peck / incise / weather on a procedural heightmap). The user draws. Carving is an automatic conversion step: drawing → carve layer → lit on the scanned wall.
 
+**Change of plan (2026-10-09):** no more paper view and no 자리 고르기. The user draws straight on the rock, and each stroke is carved the moment the finger lifts (실시간 새김; its paint fades into the fresh cut). Every drawing (each visit, each new challenge) starts at a random free spot on the wall. Other visitors' carvings are not shown while drawing (later, maybe).
+
 ## Hard constraints
 
 - Web only. No native app, no install. Must work well in mobile Safari and Chrome on Android.
@@ -18,8 +20,8 @@ This is a student team prototype for a local program. Favor simple, robust solut
 
 ## Core flow
 
-1. **Draw (그리기):** a simple drawing canvas. A small palette of a few flat colors, brush size, eraser, undo, clear. The look to aim for is the reference drawings in `ref/2d/drawing`: flat silhouettes and thick lines, like the Bangudae motif tracings.
-2. **Carve (새기기):** convert the drawing into a carving and show it on the rock wall under raking light (측광). Let the user rotate the light. This conversion is the key visual moment.
+1. **Draw (그리기):** draw on the rock itself: one finger draws, two fingers pan / zoom (right-drag pans with a mouse). Strokes are stored in wall mm and carved live (`src/carve/liveCarve.ts`: only the area a stroke touches is re-carved; pecks are placed by wall position, so the result equals a full carve). A small palette of a few flat colors, brush size, eraser, undo, clear. The look to aim for is the reference drawings in `ref/2d/drawing`: flat silhouettes and thick lines, like the Bangudae motif tracings.
+2. **Carve (완성 → 새김 보기):** the finished carving under raking light (측광); the user rotates the light, switches 바위 / 탁본 / 도면, replays the timelapse, or goes back with 더 그리기. The paint sinking into stone on every stroke is the key visual moment.
 3. **Leave it on the wall / share / score**, depending on the mode.
 
 ### Drawing → carving conversion

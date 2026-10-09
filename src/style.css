@@ -25,7 +25,7 @@ html, body {
 
 /* ---------------------------------------------------------------- view */
 #view { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #131214; touch-action: none; }
-#view > canvas, #paper { position: absolute; inset: 0; width: 100%; height: 100%; }
+#view > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 #view > #trace { right: auto; bottom: auto; }
 #trace { opacity: 0; pointer-events: none; transition: opacity 0.4s; }
 .view-tracing #trace { opacity: 1; }
@@ -33,16 +33,9 @@ html, body {
 .view-tracing #view { background: var(--paper); }
 .view-tracing #wall { opacity: 0; }
 #wall { display: block; }
-#paper {
-  background:
-    radial-gradient(120% 90% at 50% 40%, transparent 55%, rgba(120, 100, 80, 0.10)),
-    var(--paper);
-  transition: opacity 0.6s ease;
-}
-#ink { touch-action: none; cursor: crosshair; }
-.mode-carve #ink, .mode-carve #paper, .mode-place #ink, .mode-place #paper { pointer-events: none; }
-#ink { transform-origin: 0 0; }
-.mode-place #wall { cursor: grab; }
+/* the paint under the finger; the view itself takes the pointer (ui/viewGestures.ts) */
+#ink { pointer-events: none; }
+.mode-draw #view { cursor: crosshair; }
 .mode-carve #wall { cursor: grab; }
 .mode-carve #wall:active { cursor: grabbing; }
 
@@ -52,8 +45,8 @@ html, body {
   pointer-events: none; transition: color 0.6s;
 }
 #brand span { font-weight: 400; color: var(--muted); margin-left: 6px; transition: color 0.6s; }
-.mode-carve #brand, .mode-place #brand { color: #eee6dc; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
-.mode-carve #brand span, .mode-place #brand span { color: #b8ada2; }
+#brand { color: #eee6dc; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+#brand span { color: #b8ada2; }
 .mode-carve.view-tracing #brand { color: var(--text); text-shadow: none; }
 .mode-carve.view-tracing #brand span { color: var(--muted); }
 
@@ -61,9 +54,9 @@ html, body {
   position: absolute; left: 0; right: 0; margin: 0; text-align: center; pointer-events: none;
   color: var(--muted); transition: opacity 0.4s;
 }
-#hint { top: 42%; font-size: 15px; }
-#hint small { font-size: 12px; opacity: 0.8; }
-#hint.hidden, .mode-carve #hint, .mode-place #hint, .mode-wall #hint { opacity: 0; }
+#hint { top: 42%; font-size: 15px; color: #f1e9df; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85); }
+#hint small { font-size: 12px; opacity: 0.85; }
+#hint.hidden, .mode-carve #hint, .mode-wall #hint { opacity: 0; }
 #wallhint { bottom: 36px; font-size: 12px; color: #d9cfc4; text-shadow: 0 1px 3px #000; opacity: 0; }
 .mode-carve.view-rock #wallhint.show { opacity: 1; }
 
@@ -83,10 +76,9 @@ html, body {
 .draw-only { flex-direction: column; align-items: stretch; gap: 4px; }
 .row { display: flex; align-items: center; gap: 6px; }
 .col { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.mode-draw .carve-only, .mode-draw .place-only, .mode-draw .result-only,
-.mode-carve .draw-only, .mode-carve .place-only,
-.mode-place .draw-only, .mode-place .carve-only, .mode-place .result-only,
-.mode-wall .draw-only, .mode-wall .place-only, .mode-wall .carve-only, .mode-wall .result-only,
+.mode-draw .carve-only, .mode-draw .result-only,
+.mode-carve .draw-only,
+.mode-wall .draw-only, .mode-wall .carve-only, .mode-wall .result-only,
 body:not(.mode-wall) .wall-only, body:not(.mode-wall) .confirm-only,
 .mode-wall.posting .wall-only, .mode-wall:not(.posting) .confirm-only { display: none !important; }
 /* challenge: the result panel replaces the free-mode carve panel */
@@ -185,24 +177,13 @@ body:not(.view-rock) .dial-col { opacity: 0.35; pointer-events: none; }
 .view-tracing #scalebar { color: var(--muted); text-shadow: none; }
 .mode-draw .zoom, .mode-draw #scalebar { display: none; }
 
-/* 자리 고르기 */
+/* 모두의 벽 button on the drawing screen */
 .float-btn {
   position: absolute; right: 12px; bottom: 12px;
   font-size: 12px; padding: 7px 12px; color: var(--text);
   background: rgba(243, 239, 233, 0.9); border: 1px solid var(--line); border-radius: 999px;
 }
 body:not(.mode-draw) .float-btn { display: none; }
-#frame {
-  position: absolute; display: none; pointer-events: none; border-radius: 2px;
-  outline: 2px dashed rgba(255, 248, 235, 0.95); outline-offset: 0;
-  box-shadow: 0 0 0 9999px rgba(10, 8, 6, 0.38);
-  transition: outline-color 0.2s;
-}
-.mode-place #frame { display: block; }
-#frame.bad { outline-color: #e2664a; }
-.place-hint { margin: 0; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; }
-.place-hint small { color: #c0472b; font-size: 11px; min-height: 1.3em; }
-.place-only button.primary { padding: 11px 16px; }
 
 /* timelapse */
 #progress {
@@ -219,7 +200,7 @@ body:not(.mode-draw) .float-btn { display: none; }
 }
 .mode-seg button { padding: 6px 11px; }
 body:not(.mode-draw) .mode-seg, .ch-running .mode-seg, .ch-running #brand { display: none; }
-.challenge #placeBtn, .challenge #hint { display: none; }
+.challenge #hint { display: none; }
 #done { display: none; }
 .challenge #done { display: inline-block; }
 .challenge #carve { display: none; }
@@ -333,9 +314,7 @@ button.pill:active { background: #ddd4c8; }
 /* ---------------------------------------------------------------- 모두의 벽 */
 .float-left { right: auto; left: 12px; }
 body:not(.mode-draw) #wallBtn, .ch-running #wallBtn, .challenge #wallBtn { display: none; }
-.mode-wall #paper, .mode-wall #ink, .mode-wall #trace { visibility: hidden; }
-.mode-wall #brand { color: #eee6dc; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
-.mode-wall #brand span { color: #b8ada2; }
+.mode-wall #ink, .mode-wall #trace { visibility: hidden; }
 #hl {
   position: absolute; display: none; pointer-events: none; border-radius: 4px;
   outline: 2px solid rgba(255, 236, 200, 0.95); outline-offset: 2px;

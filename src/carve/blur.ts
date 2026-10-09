@@ -25,8 +25,13 @@ export function boxBlur(src: Float32Array, w: number, h: number, r: number): Flo
   return out;
 }
 
+const boxRadius = (sigma: number) => Math.max(0, Math.round((Math.sqrt((12 * sigma * sigma) / 3 + 1) - 1) / 2));
+
+/** How far (px) a value spreads under gaussBlur: pixels farther apart never affect each other. */
+export const blurReach = (sigma: number) => 3 * boxRadius(sigma);
+
 /** Gaussian blur with standard deviation `sigma` in pixels (three box passes). */
 export function gaussBlur(src: Float32Array, w: number, h: number, sigma: number): Float32Array {
-  const r = Math.max(0, Math.round((Math.sqrt((12 * sigma * sigma) / 3 + 1) - 1) / 2));
+  const r = boxRadius(sigma);
   return boxBlur(boxBlur(boxBlur(src, w, h, r), w, h, r), w, h, r);
 }

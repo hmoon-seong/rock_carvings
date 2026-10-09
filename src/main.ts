@@ -1,4 +1,5 @@
-// 암각화몬: draw on paper → carve into the scanned Bangudae wall under raking light.
+// 암각화몬: draw straight on the scanned Bangudae wall; every stroke is carved into the rock
+// as soon as the finger lifts (실시간 새김), lit by a raking light.
 
 import { motifById, pickMotif, type Motif } from "../shared/challenge";
 import { LIMITS, rectOf, type Carving, type CarvingDraft, type Rect } from "../shared/wall";
@@ -12,11 +13,12 @@ import { findSpots } from "./guestbook/spot";
 import { Guestbook } from "./guestbook/store";
 import { layerResolution, WallLayer, windowCovers, windowFor, type WallLayerResult, type WallWindow } from "./guestbook/wallLayer";
 import { buildCarve } from "./carve/carve";
+import { LiveCarve } from "./carve/liveCarve";
 import { writeShadow } from "./carve/shadow";
 import { tracingLabels } from "./carve/tracing";
-import { BRUSH_MM, CARVE_KEYS, CARVE_MM_PER_PX, RASTER_KEYS, carveStyles, defaultLab, loadMeta, PALETTE, type WallMeta } from "./config";
+import { BRUSH_MM, CARVE_KEYS, CARVE_MM_PER_PX, carveStyles, defaultLab, loadMeta, PALETTE, type WallMeta } from "./config";
 import { Ink } from "./draw/ink";
-import { countStamps, rasterizeMasks, setBrushRoughness } from "./draw/strokes";
+import { countStamps, rasterizeMasks, setBrushRoughness, type Stroke } from "./draw/strokes";
 import { setupDrawTools } from "./ui/drawTools";
 import { Lab } from "./ui/lab";
 import { koreanDate, SHARE_SIZES, shareCrop } from "./share/layout";
@@ -26,7 +28,7 @@ import { dialog, toast } from "./ui/notice";
 import { paintTracing } from "./ui/tracingCanvas";
 import { attachViewGestures } from "./ui/viewGestures";
 import { Camera, fitScale, niceLength, type CameraLimits } from "./wall/camera";
-import { loadPlacementMask, placementOK, type PlacementMask } from "./wall/placement";
+import { allowedAt, loadPlacementMask, placementOK, type PlacementMask } from "./wall/placement";
 import { WallRenderer } from "./wall/renderer";
 import { loadFull, loadOverview } from "./wall/textures";
 
@@ -34,7 +36,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const view = $<HTMLElement>("view");
 const status = $<HTMLElement>("status");
 
-type Mode = "draw" | "place" | "carve" | "wall";
+type Mode = "draw" | "carve" | "wall";
 type View = "rock" | "rubbing" | "tracing";
 let mode: Mode = "draw";
 let viewMode: View = "rock";
@@ -44,8 +46,12 @@ let motif: Motif | null = null;
 let challengeResult: ScoreResult | null = null;
 const challengeUI = new ChallengeUI();
 
-/** The drawing rectangle on the wall, in mm (chosen with 자리 고르기). Its top-left stays fixed; its height follows the screen. */
-const rect = { x: 0, y: 0, w: 700, h: 700 };
+/** Smallest free spot (mm) a drawing starts at when the wall is crowded. */
+const SPOT_MM = 600;
+/** One drawing fits in this many mm each way (keeps the live carving quick on phones). */
+const MAX_DRAWING_MM = 1500;
+/** Empty carve layer. */
+const FLAT = new Uint8Array([128, 128, 0, 0]);
 
 const smooth = (t: number) => {
   t = Math.min(1, Math.max(0, t));
@@ -82,105 +88,68 @@ async function main() {
   }
   const palette = PALETTE;
   const wallLayer = new WallLayer(palette.length);
-  const defaultLight = { ...renderer.light };
+  const guestbook = new Guestbook();
+  renderer.carveAmount = 1;
 
-  // ---------------------------------------------------------------- layout
-  // Masks are kept so the lab sliders can re-carve without re-rasterizing the strokes.
-  let carve: {
-    masks: Float32Array[];
-    used: boolean[];
-    w: number;
-    h: number;
-    mmPerPx: number;
-    rectMM: [number, number, number, number]; // fixed where it was carved
-    rgba: Uint8Array;
-    height: Float32Array;
-  } | null = null;
-  const [cx, cy] = meta.carving.demo_center_mm;
-  rect.w = meta.carving.drawing_width_mm;
-  rect.x = cx - rect.w / 2;
-  rect.y = cy - rect.w * 0.7;
-  const pxPerMM = () => view.clientWidth / rect.w;
+  // The lab comes first: the live carving reads its carve settings.
+  const lab = new Lab($("lab"), defaultLab(), defaultLab());
+  const styles = () => carveStyles(lab.settings);
+  const live = new LiveCarve(palette.length, CARVE_MM_PER_PX);
 
-  const ink = new Ink($("ink"), palette, pxPerMM, BRUSH_MM.default);
+  // ---------------------------------------------------------------- camera
+  // "Home" is the free spot the drawing started at, at the drawing scale (700 mm across).
+  const drawW = meta.carving.drawing_width_mm;
+  const spot = { cx: meta.carving.demo_center_mm[0], cy: meta.carving.demo_center_mm[1] };
+  const camera = new Camera(spot.cx, spot.cy, 1);
+  let atHome = true;
+  let zoomedOut = false; // 전체 보기 is showing (the toggle then reads 내 새김)
+  const vw = () => view.clientWidth, vh = () => view.clientHeight;
+  const homeScale = () => drawW / vw();
+  // While drawing the zoom stays near the drawing scale, so brush sizes keep their meaning.
+  const limits = (): CameraLimits =>
+    mode === "draw"
+      ? { wallW: meta.width_mm, wallH: meta.height_mm, minScale: homeScale() / 3, maxScale: homeScale() * 2 }
+      : { wallW: meta.width_mm, wallH: meta.height_mm, minScale: homeScale() / 4 };
+  const homeCamera = (): [number, number, number] => [spot.cx, spot.cy, homeScale()];
+
+  const inkView = () => {
+    const [x, y] = camera.rect(vw(), vh());
+    return { x, y, scale: camera.scale };
+  };
+  const ink = new Ink($("ink"), palette, inkView, BRUSH_MM.default);
   let syncTools = () => {};
 
-  // Camera: "home" puts the drawing rectangle exactly where the paper was (top-left aligned).
-  const camera = new Camera(0, 0, 1);
-  let atHome = true;
-  const vw = () => view.clientWidth, vh = () => view.clientHeight;
-  // While choosing a spot the frame never gets bigger than the screen.
-  const limits = (): CameraLimits => ({
-    wallW: meta.width_mm,
-    wallH: meta.height_mm,
-    minScale: mode === "place" ? rect.w / vw() : rect.w / vw() / 4,
-  });
-  const homeCamera = (): [number, number, number] => {
-    const s = rect.w / vw();
-    return [rect.x + rect.w / 2, rect.y + (vh() * s) / 2, s];
-  };
   const applyCamera = () => {
     renderer.view = camera.rect(vw(), vh());
     renderer.invalidate();
+    ink.redraw();
     placeTrace();
-    placeFrame();
     syncZoomUI();
+    syncTools();
     onWallCamera();
   };
   let onWallCamera = () => {};
   const layout = () => {
-    rect.h = (vh() / vw()) * rect.w;
     if (atHome) [camera.cx, camera.cy, camera.scale] = homeCamera();
     else camera.clamp(vw(), vh(), limits());
-    applyCamera();
     ink.resize();
-    syncTools();
+    applyCamera();
   };
-  // The tracing canvas covers the carve rectangle and follows the camera.
+  // The tracing canvas covers the carve region and follows the camera.
   const traceCanvas = $<HTMLCanvasElement>("trace");
   const placeTrace = () => {
-    if (!carve) return;
-    const [vx, vy] = camera.rect(vw(), vh()), [x, y, w, h] = carve.rectMM, s = camera.scale;
+    if (live.empty) return;
+    const [vx, vy] = camera.rect(vw(), vh()), [x, y, w, h] = live.rectMM, s = camera.scale;
     Object.assign(traceCanvas.style, {
       left: `${(x - vx) / s}px`, top: `${(y - vy) / s}px`, width: `${w / s}px`, height: `${h / s}px`,
     });
   };
 
-  // 자리 고르기: a frame fixed at the screen centre; the wall moves under it. The current
-  // drawing is shown inside the frame (the ink canvas scaled down), and the frame turns red
-  // where placement_mask.png does not allow a carving.
-  const frame = $("frame");
-  const inkEl = $("ink");
-  const placeOk = $<HTMLButtonElement>("placeOk");
-  const placeMsg = $("placeMsg");
-  let placementMask: PlacementMask | null = null;
-  let maskLoad: Promise<PlacementMask> | null = null;
-  const getPlacementMask = () =>
-    (maskLoad ??= loadPlacementMask(meta).then((m) => (placementMask = m)).catch((err) => {
-      maskLoad = null;
-      throw err;
-    }));
-  const frameRect = (): [number, number, number, number] => [camera.cx - rect.w / 2, camera.cy - rect.h / 2, rect.w, rect.h];
-  const placeFrame = () => {
-    if (mode !== "place") {
-      inkEl.style.transform = "";
-      return;
-    }
-    const fw = rect.w / camera.scale, fh = rect.h / camera.scale;
-    const left = (vw() - fw) / 2, top = (vh() - fh) / 2;
-    Object.assign(frame.style, { left: `${left}px`, top: `${top}px`, width: `${fw}px`, height: `${fh}px` });
-    inkEl.style.transform = `translate(${left}px, ${top}px) scale(${fw / vw()})`;
-    const ok = !placementMask || placementOK(placementMask, frameRect());
-    frame.classList.toggle("bad", !ok);
-    placeOk.disabled = !ok;
-    placeMsg.textContent = ok ? "" : "여기는 새길 수 없어요";
-  };
-
-  // Zoom controls + scale bar (carve and place screens).
+  // Zoom controls + scale bar (carve and wall screens).
   const zoomToggle = $<HTMLButtonElement>("zoomToggle");
   const scaleBar = $("scalebar");
   const syncZoomUI = () => {
-    zoomToggle.textContent = atHome || mode === "place" || mode === "wall" ? "전체 보기" : "내 새김";
+    zoomToggle.textContent = zoomedOut && mode !== "wall" ? "내 새김" : "전체 보기";
     const len = niceLength(90 * camera.scale);
     (scaleBar.firstElementChild as HTMLElement).style.width = `${len / camera.scale}px`;
     scaleBar.lastElementChild!.textContent = len >= 1000 ? `${len / 1000} m` : `${len / 10} cm`;
@@ -195,11 +164,6 @@ async function main() {
       applyCamera();
     });
   };
-  const goHome = async () => {
-    await animateCamera(homeCamera());
-    atHome = true;
-    syncZoomUI();
-  };
   const zoomBy = (f: number) => {
     const c = new Camera(camera.cx, camera.cy, camera.scale);
     c.zoomAt(f, vw() / 2, vh() / 2, vw(), vh(), limits());
@@ -209,15 +173,58 @@ async function main() {
   $("zoomIn").addEventListener("click", () => zoomBy(1.6));
   $("zoomOut").addEventListener("click", () => zoomBy(1 / 1.6));
   zoomToggle.addEventListener("click", async () => {
-    if (atHome || mode === "place" || mode === "wall") {
+    if (busy) return;
+    if (!zoomedOut || mode === "wall") {
       atHome = false;
+      zoomedOut = mode !== "wall";
       await animateCamera([meta.width_mm / 2, meta.height_mm / 2, fitScale(vw(), vh(), limits())], 700);
-      syncZoomUI();
-    } else await goHome();
+    } else {
+      zoomedOut = false;
+      await focusCarving();
+    }
+    syncZoomUI();
   });
 
   new ResizeObserver(layout).observe(view);
-  layout();
+
+  // ---------------------------------------------------------------- free spots
+  let placementMask: PlacementMask | null = null;
+  let maskLoad: Promise<PlacementMask> | null = null;
+  const getPlacementMask = () =>
+    (maskLoad ??= loadPlacementMask(meta).then((m) => (placementMask = m)).catch((err) => {
+      maskLoad = null;
+      throw err;
+    }));
+
+  /**
+   * Centre (mm) of a random free spot on allowed wall, away from everyone's carvings: about
+   * the size of the screen at the drawing scale, so the view starts on rock; smaller if crowded.
+   */
+  const pickSpot = async (): Promise<[number, number] | null> => {
+    const [mask, all] = await Promise.all([getPlacementMask(), guestbook.list([0, 0, meta.width_mm, meta.height_mm], true)]);
+    const taken = all.map(rectOf);
+    const viewH = Math.min(vh() * homeScale() * 0.85, 1000);
+    for (const [w, h] of [[drawW, viewH], [SPOT_MM, SPOT_MM]]) {
+      const preferred: [number, number] = [Math.random() * (meta.width_mm - w), Math.random() * (meta.height_mm - h)];
+      const [r] = findSpots(w, h, preferred, {
+        wallW: meta.width_mm, wallH: meta.height_mm, taken, allowed: (r) => placementOK(mask, r), max: 1,
+      });
+      if (r) return [r[0] + r[2] / 2, r[1] + r[3] / 2];
+    }
+    return null;
+  };
+  /** Moves home to a new free spot (the demo spot if none is found in time). */
+  const goToNewSpot = async (animated: boolean) => {
+    const found = await Promise.race([
+      pickSpot().catch((err) => (console.warn("no free spot", err), null)),
+      sleep(3000).then(() => null),
+    ]);
+    if (found) [spot.cx, spot.cy] = found;
+    zoomedOut = false;
+    if (animated) await animateCamera(homeCamera(), 700);
+    atHome = true;
+    layout();
+  };
 
   // ---------------------------------------------------------------- textures
   let fullLoad: Promise<void> | null = null;
@@ -226,16 +233,79 @@ async function main() {
     (fullLoad ??= loadFull(meta)
       .then((img) => renderer.setWall(img, "full"))
       .catch((err) => console.warn("full-res wall failed, staying on overview", err)));
-  loadOverview(meta)
-    .then((img) => {
+  Promise.all([loadOverview(meta), goToNewSpot(false)])
+    .then(([img]) => {
       renderer.setWall(img, "overview");
       renderer.setDetail(img.detail);
       status.classList.add("done");
     })
     .catch(fail);
 
+  // ---------------------------------------------------------------- live carving
+  // The carve layer on the GPU follows `live`; other layers (timelapse frames, the shared
+  // wall) reset `carveShown` so the next upload sends the whole layer again.
+  let carveShown = -1;
+  let timelapseRunning = false;
+  let traceDirty = true;
+  const showLive = () => {
+    if (live.empty) {
+      renderer.setCarve(FLAT, 1, 1, [0, 0, 1, 1]);
+      carveShown = -1;
+    } else if (carveShown !== live.version) {
+      renderer.setCarve(live.rgba, live.w, live.h, live.rectMM);
+      carveShown = live.version;
+    } else renderer.updateCarve(live.rgba);
+  };
+  /** Cast shadow for the current light, then upload. */
+  const relightLive = () => {
+    if (!live.empty) {
+      const { azimuth, elevation } = renderer.light;
+      writeShadow(live.rgba, live.height, live.w, live.h, live.mmPerPx, azimuth, elevation);
+    }
+    showLive();
+  };
+  const carveChanged = () => {
+    traceDirty = true;
+    if (mode === "wall") return;
+    relightLive();
+    placeTrace();
+    if (viewMode === "tracing") paintTrace();
+  };
+  const paintTrace = () => {
+    if (live.empty || !traceDirty) return;
+    const sigmas = styles().map((s) => s.bevel_sigma_mm / live.mmPerPx);
+    const masks = live.masks.map((m, i) => (live.used[i] ? m : new Float32Array(m.length)));
+    paintTracing(traceCanvas, tracingLabels(masks, sigmas, live.w, live.h), live.w, live.h, palette);
+    placeTrace();
+    traceDirty = false;
+  };
+
+  // Strokes carve the moment they end; undo / clear re-carve the area they covered.
+  ink.onEdit = (changed) => {
+    live.update(ink.strokes, changed, styles());
+    carveChanged();
+    setPosted(false);
+  };
+  /** Points (mm) of a stroke that fall on wall where carving is allowed. */
+  const onAllowedWall = (s: Stroke) => {
+    if (!placementMask) return true;
+    let ok = 0;
+    for (let i = 0; i < s.points.length; i += 2) if (allowedAt(placementMask, s.points[i], s.points[i + 1])) ok++;
+    return ok * 2 >= s.points.length / 2;
+  };
+  ink.accept = (s) => {
+    if (ink.strokes.length >= LIMITS.maxStrokes) return toast("더 그릴 수 없어요. 이제 완성해 볼까요?"), false;
+    if (!onAllowedWall(s)) return toast("여기는 새길 수 없어요"), false;
+    const b = live.carveBounds([...ink.strokes, s], styles());
+    if (b && (b[2] - b[0] > MAX_DRAWING_MM || b[3] - b[1] > MAX_DRAWING_MM)) {
+      toast(`한 그림은 ${MAX_DRAWING_MM / 1000} m 안에 그려 주세요`);
+      return false;
+    }
+    return true;
+  };
+
   // ---------------------------------------------------------------- draw tools
-  syncTools = setupDrawTools(ink, palette, pxPerMM);
+  syncTools = setupDrawTools(ink, palette, () => 1 / camera.scale);
   const hint = $("hint");
   const carveBtn = $<HTMLButtonElement>("carve");
   const doneBtn = $<HTMLButtonElement>("done");
@@ -246,63 +316,33 @@ async function main() {
     syncTools();
   };
   ink.onChange = syncDraw;
-  $("ink").addEventListener("pointerdown", requestFull);
   syncDraw();
+  layout();
 
-  // ---------------------------------------------------------------- carving
-  const lab = new Lab($("lab"), defaultLab(), defaultLab());
-  let traceDirty = true;
-
-  const recarve = () => {
-    if (!carve) return;
-    const styles = carveStyles(lab.settings);
-    const layers = carve.masks.flatMap((mask, i) => (carve!.used[i] ? [{ mask, style: styles[i] }] : []));
-    const { rgba, height } = buildCarve(layers, { w: carve.w, h: carve.h, mmPerPx: carve.mmPerPx });
-    Object.assign(carve, { rgba, height });
-    renderer.setCarve(rgba, carve.w, carve.h, carve.rectMM);
-    relight();
-    traceDirty = true;
-    if (viewMode === "tracing") paintTrace();
-  };
-  const paintTrace = () => {
-    if (!carve || !traceDirty) return;
-    const sigmas = carveStyles(lab.settings).map((s) => s.bevel_sigma_mm / carve!.mmPerPx);
-    const masks = carve.masks.map((m, i) => (carve!.used[i] ? m : new Float32Array(m.length)));
-    paintTracing(traceCanvas, tracingLabels(masks, sigmas, carve.w, carve.h), carve.w, carve.h, palette);
-    placeTrace();
-    traceDirty = false;
-  };
-
-  // Shading sliders apply at once; carve sliders re-carve at most every ~120 ms while dragging.
-  // 붓 거칠기 changes the marks themselves: the paper redraws and the masks are rebuilt from the strokes.
+  // ---------------------------------------------------------------- lab
+  // Shading sliders apply at once; carve sliders re-carve the whole drawing at most every ~120 ms.
   renderer.setLook(lab.settings);
   setBrushRoughness(lab.settings.brush_roughness);
   let labTimer = 0;
-  let rasterDirty = false;
   lab.onChange = (settings, key) => {
     renderer.setLook(settings);
     if (key && !CARVE_KEYS.includes(key)) return;
     wallLayer.lookVersion++;
-    if (!key || RASTER_KEYS.includes(key)) {
-      setBrushRoughness(settings.brush_roughness);
-      ink.redraw();
-      rasterDirty = true;
-    }
+    setBrushRoughness(settings.brush_roughness);
     if (labTimer) return;
     labTimer = window.setTimeout(() => {
       labTimer = 0;
-      if (rasterDirty && carve) {
-        const [, , wMM, hMM] = carve.rectMM;
-        const { masks, used } = rasterizeMasks(ink.strokes, palette.length, wMM, hMM, CARVE_MM_PER_PX);
-        Object.assign(carve, { masks, used });
-      }
-      rasterDirty = false;
-      recarve();
+      live.rebuild(ink.strokes, styles());
+      carveChanged();
     }, 120);
   };
   lab.extra = () => ({ azimuth_deg: renderer.light.azimuth, elevation_deg: renderer.light.elevation });
   const labBtn = $("labBtn");
   labBtn.addEventListener("click", () => labBtn.setAttribute("aria-expanded", String(lab.toggle())));
+  const closeLab = () => {
+    lab.toggle(false);
+    labBtn.setAttribute("aria-expanded", "false");
+  };
 
   // ---------------------------------------------------------------- light
   const dial = new LightDial(renderer.light);
@@ -314,30 +354,26 @@ async function main() {
   };
   // The carving's cast shadow depends on the light: recompute it at most once per frame.
   let shadowQueued = false;
-  let timelapseRunning = false;
   const relight = () => {
     shadowQueued = false;
     if (mode === "wall") return relightWall();
-    if (!carve || timelapseRunning) return;
-    const { azimuth, elevation } = renderer.light;
-    writeShadow(carve.rgba, carve.height, carve.w, carve.h, carve.mmPerPx, azimuth, elevation);
-    renderer.updateCarve(carve.rgba);
+    if (live.empty || timelapseRunning) return;
+    relightLive();
   };
-  const setLight = (l: typeof renderer.light, fromDial = false) => {
+  const setLight = (l: typeof renderer.light) => {
     renderer.light = { ...l };
     renderer.invalidate();
-    if (!fromDial) dial.set(l, false);
-    if ((carve || mode === "wall") && !shadowQueued) {
+    if (!shadowQueued) {
       shadowQueued = true;
       requestAnimationFrame(relight);
     }
   };
-  dial.onInput = (l) => setLight(l, true);
+  dial.onInput = (l) => setLight(l);
 
-  // Drag / pinch / wheel on the wall moves the camera (the light is set with the dial).
+  // One finger draws on the rock (draw mode); two fingers move and zoom; elsewhere a drag pans.
   const wallHint = $("wallhint");
   attachViewGestures(view, {
-    enabled: () => mode !== "draw" && !busy,
+    enabled: () => !busy,
     start: () => wallHint.classList.remove("show"),
     pan: (dx, dy) => {
       camera.pan(dx, dy);
@@ -352,6 +388,21 @@ async function main() {
       applyCamera();
     },
     tap: (sx, sy) => wallTap(sx, sy),
+    draw: {
+      active: () => mode === "draw" && !busy,
+      begin: (x, y) => {
+        if (!ink.enabled) return false;
+        requestFull();
+        hint.classList.add("hidden");
+        return ink.begin(x, y);
+      },
+      move: (p) => ink.extend(p),
+      end: () => ink.end(),
+      cancel: () => {
+        ink.cancel();
+        syncDraw();
+      },
+    },
   });
 
   // ---------------------------------------------------------------- views: 바위 / 탁본 / 도면
@@ -379,69 +430,24 @@ async function main() {
   });
 
   // ---------------------------------------------------------------- mode switches
-  const paper = $("paper");
   const inkCanvas = $("ink");
   const step = $("step");
   const setMode = (m: Mode) => {
     mode = m;
-    document.body.classList.remove("mode-draw", "mode-place", "mode-carve", "mode-wall");
+    document.body.classList.remove("mode-draw", "mode-carve", "mode-wall");
     document.body.classList.add(`mode-${m}`);
-    step.textContent = m === "wall" ? "모두의 벽" : motif ? "도전" : { draw: "그리기", place: "자리 고르기", carve: "새기기" }[m];
+    step.textContent = m === "wall" ? "모두의 벽" : motif ? "도전" : { draw: "그리기", carve: "새김 보기" }[m];
     placeDial();
-  };
-
-  // ---------------------------------------------------------------- 자리 고르기
-  let placeFrom = { x: rect.x, y: rect.y };
-  $("placeBtn").addEventListener("click", async () => {
-    if (busy) return;
-    busy = true;
-    placeFrom = { x: rect.x, y: rect.y };
-    getPlacementMask()
-      .then(() => placeFrame())
-      .catch((err) => console.warn("placement mask failed; any spot allowed", err));
-    setMode("place");
-    atHome = false;
+    camera.clamp(vw(), vh(), limits());
     applyCamera();
-    // Paper lifts off and the view pulls back so the drawing sits in a frame on the wall.
-    const [hx, hy, hs] = homeCamera();
-    paper.style.transition = "none";
-    await animate(700, (t) => {
-      paper.style.opacity = String(1 - smooth(t / 0.6));
-      camera.cx = hx;
-      camera.cy = hy;
-      camera.scale = hs * Math.exp(Math.log(3) * smooth(t));
-      applyCamera();
-    });
-    busy = false;
-  });
-  const leavePlace = async () => {
-    await animateCamera(homeCamera(), 550); // the frame grows to fill the screen
-    atHome = true;
-    setMode("draw");
-    applyCamera();
-    await animate(350, (t) => (paper.style.opacity = String(smooth(t))));
-    busy = false;
   };
-  placeOk.addEventListener("click", () => {
-    if (busy) return;
-    busy = true;
-    [rect.x, rect.y] = frameRect();
-    leavePlace();
-  });
-  $("placeCancel").addEventListener("click", () => {
-    if (busy) return;
-    busy = true;
-    rect.x = placeFrom.x;
-    rect.y = placeFrom.y;
-    leavePlace();
-  });
   setMode("draw");
   setView("rock", false);
 
   // ---------------------------------------------------------------- timelapse
   // The carving is pecked mark by mark in drawing order. Frames are built at 2 mm/px (a quarter
-  // of the pixels) so they keep up; the full 1 mm/px carving replaces them at the end.
-  // A tap on the wall skips to the end.
+  // of the pixels) so they keep up; the live 1 mm/px carving replaces them at the end.
+  // The drawing shows as a faint guide sketch meanwhile. A tap on the wall skips to the end.
   const GUIDE_OPACITY = 0.35;
   const TIMELAPSE_MM_PER_PX = 2;
   const progress = $("progress");
@@ -450,20 +456,26 @@ async function main() {
     if (timelapseRunning) skipTimelapse = true;
   });
   const timelapseFrame = (limit: number) => {
-    const c = carve!;
-    const styles = carveStyles(lab.settings);
-    const { masks, w, h, used } = rasterizeMasks(ink.strokes, palette.length, c.rectMM[2], c.rectMM[3], TIMELAPSE_MM_PER_PX, limit);
-    const layers = masks.flatMap((mask, i) => (used[i] ? [{ mask, style: styles[i] }] : []));
-    const mmPerPx = c.rectMM[2] / w;
-    const { rgba, height } = buildCarve(layers, { w, h, mmPerPx });
+    const st = styles();
+    const [rx, ry, rw, rh] = live.rectMM;
+    const { masks, w, h } = rasterizeMasks(ink.strokes, palette.length, rw, rh, TIMELAPSE_MM_PER_PX, limit, rx, ry);
+    const layers = masks.flatMap((mask, i) => (mask.some((v) => v > 0) ? [{ mask, style: st[i], key: i }] : []));
+    const mmPerPx = rw / w;
+    const { rgba, height } = buildCarve(layers, { w, h, mmPerPx, origin: [Math.round(rx / mmPerPx), Math.round(ry / mmPerPx)] });
     writeShadow(rgba, height, w, h, mmPerPx, renderer.light.azimuth, renderer.light.elevation, 1);
-    renderer.setCarve(rgba, w, h, c.rectMM);
+    renderer.setCarve(rgba, w, h, live.rectMM);
+    carveShown = -1;
   };
   const playTimelapse = async () => {
-    if (!carve) return;
+    if (live.empty) return;
     timelapseRunning = true;
     skipTimelapse = false;
     document.body.classList.add("timelapse");
+    renderer.setCarve(FLAT, 1, 1, live.rectMM);
+    carveShown = -1;
+    ink.guide = true;
+    ink.redraw();
+    await animate(300, (t) => (inkCanvas.style.opacity = String(1 - (1 - GUIDE_OPACITY) * smooth(t))));
     const total = countStamps(ink.strokes);
     const frames = Math.min(48, Math.max(12, Math.ceil(total / 5)));
     const duration = Math.min(7000, Math.max(3000, total * 22));
@@ -480,104 +492,64 @@ async function main() {
         built = f;
       }
     }
-    // Full-resolution carving, then the guide sketch fades away.
-    renderer.setCarve(carve.rgba, carve.w, carve.h, carve.rectMM);
     timelapseRunning = false;
-    relight();
+    relightLive();
     document.body.classList.remove("timelapse");
-    const g0 = +(inkCanvas.style.opacity || GUIDE_OPACITY);
-    await animate(700, (k) => (inkCanvas.style.opacity = String(g0 * (1 - smooth(k)))));
+    await animate(700, (k) => (inkCanvas.style.opacity = String(GUIDE_OPACITY * (1 - smooth(k)))));
+    ink.guide = false;
+    ink.redraw();
+    inkCanvas.style.opacity = "1";
     progress.style.transform = "scaleX(0)";
   };
 
-  // Builds the carving of the current drawing in the drawing rectangle (no animation yet).
-  const prepareCarve = () => {
-    const { masks, w, h, used } = rasterizeMasks(ink.strokes, palette.length, rect.w, rect.h, CARVE_MM_PER_PX);
-    const mmPerPx = rect.w / w;
-    const rectMM: [number, number, number, number] = [rect.x, rect.y, rect.w, h * mmPerPx];
-    carve = { masks, used, w, h, mmPerPx, rectMM, rgba: new Uint8Array(0), height: new Float32Array(0) };
-    traceDirty = true;
-    recarve();
-    setPosted(false);
-    return carve;
-  };
-
-  // Paper lifts off; the drawing stays as a faint guide sketch on the bare rock; then the timelapse.
-  const presentCarve = async () => {
-    renderer.carveAmount = 1;
-    atHome = true;
-    [camera.cx, camera.cy, camera.scale] = homeCamera();
-    applyCamera();
-    setView("rock", false);
-    setMode("carve");
-    setLight(defaultLight);
-    paper.style.transition = "none";
-    renderer.setCarve(new Uint8Array([128, 128, 0, 0]), 1, 1, carve!.rectMM);
-    await animate(600, (t) => {
-      paper.style.opacity = String(1 - smooth(t));
-      inkCanvas.style.opacity = String(1 - (1 - GUIDE_OPACITY) * smooth(t));
-    });
-    if (ink.strokes.length > 0) await playTimelapse();
-    else inkCanvas.style.opacity = "0";
-  };
-
-  /** The carving's bounding box on the wall in mm (with a margin), or the drawing rectangle. */
+  /** The carving's bounding box on the wall in mm (with a margin), or the home view. */
   const carveBBoxMM = (pad = 40): [number, number, number, number] => {
-    const c = carve!;
-    const bb = maskBBox(c.masks, c.w, c.h);
-    if (!bb) return c.rectMM;
-    const k = c.mmPerPx;
-    return [c.rectMM[0] + bb[0] * k - pad, c.rectMM[1] + bb[1] * k - pad, (bb[2] - bb[0]) * k + 2 * pad, (bb[3] - bb[1]) * k + 2 * pad];
+    const bb = live.empty ? null : maskBBox(live.masks, live.w, live.h);
+    if (!bb) return camera.rect(vw(), vh());
+    const [rx, ry] = live.rectMM, k = live.mmPerPx;
+    return [rx + bb[0] * k - pad, ry + bb[1] * k - pad, (bb[2] - bb[0]) * k + 2 * pad, (bb[3] - bb[1]) * k + 2 * pad];
   };
   /** Frames the carving in the view (the result panel is taller than the drawing panel). */
   const focusCarving = () => {
     const [x, y, w, h] = carveBBoxMM();
-    const home = rect.w / vw();
+    const home = homeScale();
     const s = Math.min(home * 2, Math.max(home * 0.75, Math.max(w / vw(), h / vh()) * 1.2));
     atHome = false;
     return animateCamera([x + w / 2, y + h / 2, s], 600);
   };
 
+  // 완성: the drawing is already carved; show it with the light, views and sharing.
+  const presentCarve = async () => {
+    closeLab();
+    setView("rock", false);
+    setMode("carve");
+    zoomedOut = false;
+    await focusCarving();
+  };
   carveBtn.addEventListener("click", async () => {
-    if (busy || ink.strokes.length === 0) return;
+    if (busy || ink.strokes.length === 0 || ink.drawing) return;
     busy = true;
     requestFull();
-    carveBtn.textContent = "새기는 중…";
-    await nextFrame();
-    prepareCarve();
-    carveBtn.textContent = "새기기";
     await presentCarve();
     busy = false;
     wallHint.classList.add("show");
   });
 
   $("replay").addEventListener("click", async () => {
-    if (busy || !carve) return;
+    if (busy || live.empty) return;
     busy = true;
-    lab.toggle(false);
-    labBtn.setAttribute("aria-expanded", "false");
+    closeLab();
     setView("rock");
-    await goHome();
-    renderer.setCarve(new Uint8Array([128, 128, 0, 0]), 1, 1, carve.rectMM);
-    await animate(300, (t) => (inkCanvas.style.opacity = String(GUIDE_OPACITY * smooth(t))));
     await playTimelapse();
     busy = false;
   });
 
-  // Back to the paper: the carving sinks back into the rock and the drawing returns.
+  // Back to drawing on the same rock (the carving stays).
   const backToDraw = async () => {
-    lab.toggle(false);
-    labBtn.setAttribute("aria-expanded", "false");
+    closeLab();
     setView("rock");
-    await goHome();
-    const c0 = renderer.carveAmount;
-    await animate(600, (t) => {
-      const k = smooth(t);
-      paper.style.opacity = inkCanvas.style.opacity = String(k);
-      renderer.carveAmount = c0 * (1 - k);
-      renderer.invalidate();
-    });
     setMode("draw");
+    await nextFrame();
   };
   $("redraw").addEventListener("click", async () => {
     if (busy) return;
@@ -587,22 +559,23 @@ async function main() {
   });
 
   // ---------------------------------------------------------------- 도전 모드
-  // Prompt card → 3-2-1 → timer → drawing locks → silhouette to the scoring proxy while the
-  // carving timelapse plays → result.
+  // Prompt card (at a new free spot) → 3-2-1 → timer → drawing locks → silhouette to the
+  // scoring proxy → result.
   const modeSeg = $("modeSeg");
   const syncModeSeg = () =>
     [...modeSeg.children].forEach((b) =>
       b.setAttribute("aria-checked", String(((b as HTMLElement).dataset.mode === "challenge") === (motif != null))),
     );
-  const openCard = (m: Motif) => {
+  const openCard = async (m: Motif) => {
     motif = m;
     document.body.classList.add("challenge");
     ink.reset();
     ink.enabled = false;
-    challengeUI.showCard(m);
     step.textContent = "도전";
     syncModeSeg();
     syncDraw();
+    await goToNewSpot(true);
+    if (motif === m) challengeUI.showCard(m);
   };
   const quitChallenge = () => {
     challengeUI.hideCard();
@@ -619,20 +592,20 @@ async function main() {
     const want = (e.target as HTMLElement).dataset.mode;
     if (busy || mode !== "draw" || !want) return;
     if (want === "challenge" && !motif) {
+      busy = true;
       if (ink.strokes.length > 0) {
-        busy = true;
-        const go = await dialog("도전 모드로 갈까요?", "도전은 빈 종이에서 시작해요.\n지금 그리던 그림은 지워져요.", [
+        const go = await dialog("도전 모드로 갈까요?", "도전은 새 빈자리에서 시작해요.\n지금 그리던 그림은 지워져요.", [
           { label: "계속 그리기", value: false },
           { label: "도전하기", value: true, primary: true },
         ]);
-        busy = false;
-        if (!go) return;
+        if (!go) return void (busy = false);
       }
-      openCard(pickMotif());
+      await openCard(pickMotif());
+      busy = false;
     }
     if (want === "free" && motif) quitChallenge();
   });
-  $("cardSwap").addEventListener("click", () => motif && openCard(pickMotif(motif.id)));
+  $("cardSwap").addEventListener("click", () => motif && challengeUI.showCard((motif = pickMotif(motif.id))));
   $("cardStart").addEventListener("click", async () => {
     if (busy || !motif) return;
     busy = true;
@@ -645,6 +618,7 @@ async function main() {
     const timer = challengeUI.runTimer(motif);
     syncDraw();
     const why = await timer;
+    ink.cancel(); // a stroke still under the finger when time runs out is not carved
     ink.enabled = false;
     document.body.classList.remove("ch-running");
     if (why !== "quit") finishChallenge(why);
@@ -659,7 +633,7 @@ async function main() {
   const showScoring = (m: Motif) => {
     $("resPrompt").textContent = m.label;
     scoreNum.textContent = "…";
-    resGuess.textContent = "새기는 동안 채점하고 있어요…";
+    resGuess.textContent = "새김을 보고 채점하고 있어요…";
     resComment.textContent = "";
     mockBadge.hidden = true;
     resultButtons.forEach((b) => (b.disabled = true));
@@ -689,24 +663,22 @@ async function main() {
       toast("그만! 시간이 다 됐어요", 1400);
       await sleep(900);
     }
-    prepareCarve();
-    const png = silhouettePNG(carve!.masks, carve!.w, carve!.h);
+    const png = live.empty ? null : silhouettePNG(live.masks, live.w, live.h);
     showScoring(m);
     const scoring = png ? requestScore(png, m.id) : Promise.resolve(EMPTY_RESULT);
     await presentCarve();
     const r = await scoring;
     if (motif !== m) return; // left the challenge meanwhile
     challengeResult = r;
-    await Promise.all([showResult(r), focusCarving()]);
+    await showResult(r);
     busy = false;
   };
 
   const restartChallenge = async (m: Motif) => {
     if (busy) return;
     busy = true;
-    ink.reset();
     await backToDraw();
-    openCard(m);
+    await openCard(m);
     busy = false;
   };
   $("retry").addEventListener("click", () => motif && restartChallenge(motif));
@@ -716,7 +688,7 @@ async function main() {
   // ---------------------------------------------------------------- 공유하기 (share image)
   const share = new ShareSheet();
   const openShare = () => {
-    if (busy || !carve) return;
+    if (busy || live.empty) return;
     const r = challengeResult;
     const badge = motif ? `도전 · ${motif.label}${r && !r.flagged && r.match != null ? ` · ${r.match}점` : ""}` : undefined;
     share.open({
@@ -735,11 +707,11 @@ async function main() {
   // ---------------------------------------------------------------- 모두의 벽 (shared wall)
   // Every carving is rebuilt from its strokes into one carve layer covering a window around
   // the view, at a resolution that follows the zoom. Only carvings in the window are loaded.
-  const guestbook = new Guestbook();
   const hl = $("hl"), wallInfo = $("wallInfo"), wallCount = $("wallCount");
   const postOk = $<HTMLButtonElement>("postOk"), postMsg = $<HTMLInputElement>("postMsg");
   const postButtons = [$<HTMLButtonElement>("postFree"), postRes];
   let wallFrom: Mode = "draw";
+  let wallCam: [number, number, number] = [0, 0, 1];
   let wallWin: WallWindow | null = null;
   let wallRes: WallLayerResult | null = null;
   let wallLoaded: Carving[] = [];
@@ -788,7 +760,7 @@ async function main() {
     wallWin = win;
     wallRes = wallLayer.build(list, win, carveStyles(lab.settings));
     renderer.setCarve(wallRes.rgba, win.w, win.h, win.rect);
-    renderer.carveAmount = 1;
+    carveShown = -1;
     relightWall();
     $("wallBadge").hidden = guestbook.mode !== "local";
   };
@@ -868,12 +840,13 @@ async function main() {
   };
 
   const enterWall = async (focus?: Rect) => {
-    if (mode !== "wall") wallFrom = mode;
-    lab.toggle(false);
-    labBtn.setAttribute("aria-expanded", "false");
+    if (mode !== "wall") {
+      wallFrom = mode;
+      wallCam = [camera.cx, camera.cy, camera.scale];
+    }
+    closeLab();
     wallHint.classList.remove("show");
     setView("rock", false);
-    if (wallFrom === "draw") renderer.carveAmount = 0;
     setMode("wall");
     selected = null;
     showWallInfo();
@@ -893,14 +866,9 @@ async function main() {
     marks.innerHTML = "";
     wallWin = wallRes = null;
     wallGen++;
-    const back = wallFrom;
-    setMode(back);
-    if (carve) {
-      renderer.setCarve(carve.rgba, carve.w, carve.h, carve.rectMM);
-      relight();
-    }
-    renderer.carveAmount = back === "carve" ? 1 : 0;
-    await goHome();
+    setMode(wallFrom);
+    relightLive();
+    await animateCamera(wallCam, 700);
   };
 
   $("wallBtn").addEventListener("click", () => {
@@ -915,15 +883,13 @@ async function main() {
   });
 
   // ---- 벽에 남기기: geolocation → a free spot → confirm (message) → moderation → stored.
-  /** The current carving as a wall row: strokes cropped to the carving (+ bevel margin). */
+  /** The current carving as a wall row: strokes moved to the carving's box (+ bevel margin). */
   const makeDraft = (): CarvingDraft | null => {
-    const c = carve!;
-    const bb = maskBBox(c.masks, c.w, c.h);
+    const bb = live.empty ? null : maskBBox(live.masks, live.w, live.h);
     if (!bb) return null;
-    const k = c.mmPerPx, pad = 16;
-    const x0 = Math.max(0, bb[0] * k - pad), y0 = Math.max(0, bb[1] * k - pad);
-    const x1 = Math.min(c.rectMM[2], bb[2] * k + pad), y1 = Math.min(c.rectMM[3], bb[3] * k + pad);
-    const w = Math.max(LIMITS.minSize, x1 - x0), h = Math.max(LIMITS.minSize, y1 - y0);
+    const [rx, ry] = live.rectMM, k = live.mmPerPx, pad = 16;
+    const x0 = rx + bb[0] * k - pad, y0 = ry + bb[1] * k - pad;
+    const w = Math.max(LIMITS.minSize, (bb[2] - bb[0]) * k + 2 * pad), h = Math.max(LIMITS.minSize, (bb[3] - bb[1]) * k + 2 * pad);
     const strokes = toWallStrokes(ink.strokes, x0, y0);
     // Very long drawings: thin the points until they fit the row limit.
     while (strokes.reduce((n, s) => n + s.p.length, 0) > LIMITS.maxPoints) {
@@ -932,7 +898,7 @@ async function main() {
     if (strokes.length > LIMITS.maxStrokes) return null;
     const r = challengeResult;
     return {
-      x_mm: c.rectMM[0] + x0, y_mm: c.rectMM[1] + y0, w_mm: w, h_mm: h, src_w: w, src_h: h, strokes,
+      x_mm: x0, y_mm: y0, w_mm: w, h_mm: h, src_w: w, src_h: h, strokes,
       prompt: motif?.id ?? null,
       score: motif && r && !r.flagged && !r.fallback ? r.match : null,
     };
@@ -965,7 +931,7 @@ async function main() {
   });
 
   const startPost = async () => {
-    if (busy || !carve || carvePosted || ink.strokes.length === 0) return;
+    if (busy || live.empty || carvePosted || ink.strokes.length === 0) return;
     if (motif && challengeResult?.flagged) return;
     busy = true;
     try {
@@ -1022,6 +988,7 @@ async function main() {
           applyCamera();
         },
         cam: () => [camera.cx, camera.cy, camera.scale, vw(), vh()],
+        live: () => ({ rect: live.rectMM, w: live.w, h: live.h, v: live.version, minH: live.height.reduce((m, v) => Math.min(m, v), 0) }),
         wall: () => wallRes && { r: wallRes.mmPerPx, w: wallRes.w, h: wallRes.h, rect: wallRes.rect, n: wallLoaded.length, minH: wallRes.height.reduce((a, b) => Math.min(a, b), 0) },
       },
     });
@@ -1052,14 +1019,14 @@ async function main() {
     error: ["지금은 남길 수 없어요", "연결이 불안정해요. 잠시 후 다시 시도해 주세요."],
   };
   postOk.addEventListener("click", async () => {
-    if (busy || !pending || !carve) return;
+    if (busy || !pending || live.empty) return;
     busy = true;
     postOk.textContent = "확인하는 중…";
     postOk.disabled = true;
     const message = clipMessage(postMsg.value.trim());
     share.setMessage(message);
     const { id: _id, created_at: _at, ...draft } = pending;
-    const png = silhouettePNG(carve.masks, carve.w, carve.h) ?? "";
+    const png = silhouettePNG(live.masks, live.w, live.h) ?? "";
     const res = await guestbook.post(draft, png, message);
     postOk.textContent = "새기기";
     postOk.disabled = false;

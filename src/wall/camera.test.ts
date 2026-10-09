@@ -48,3 +48,11 @@ describe("niceLength", () => {
     expect(niceLength(1800)).toBe(1000);
   });
 });
+
+describe("Camera limits", () => {
+  it("never zooms out past maxScale", () => {
+    const c = new Camera(3000, 1800, 2);
+    c.zoomAt(0.1, VW / 2, VH / 2, VW, VH, { ...lim, maxScale: 3 });
+    expect(c.scale).toBe(3);
+  });
+});

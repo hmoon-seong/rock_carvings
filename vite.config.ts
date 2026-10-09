@@ -1,6 +1,6 @@
 // Vite config. The /api/* serverless handlers also run inside `npm run dev` and `npm run preview`,
 // so the whole app (scoring proxy + shared wall) works locally without the Netlify CLI.
-// Server env vars (ANTHROPIC_API_KEY, SUPABASE_*) come from .env.local / the shell and never
+// Server env vars (DASHSCOPE_API_KEY, SUPABASE_*) come from .env.local / the shell and never
 // reach the client bundle (Vite only exposes VITE_* variables to client code).
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -51,6 +51,6 @@ function api(env: Env): Plugin {
 export default defineConfig(({ mode }) => {
   const env: Env = { ...process.env, ...loadEnv(mode, process.cwd(), "") };
   // MOCK=1 forces mock mode even when keys are set (e.g. to demo without spending API calls).
-  if (env.MOCK === "1") delete env.ANTHROPIC_API_KEY, delete env.SUPABASE_URL;
+  if (env.MOCK === "1") delete env.DASHSCOPE_API_KEY, delete env.SUPABASE_URL;
   return { plugins: [api(env)] };
 });

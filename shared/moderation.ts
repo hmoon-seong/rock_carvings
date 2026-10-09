@@ -1,5 +1,5 @@
 // Fallback text check used when no AI moderation is available (mock mode).
-// Deliberately small: it only catches the obvious words. The real check is the proxy's Claude call.
+// Deliberately small: it only catches the obvious words. The real check is the proxy's Qwen call.
 
 const BLOCK = [
   "시발", "씨발", "씨바", "ㅅㅂ", "ㅆㅂ", "병신", "ㅂㅅ", "좆", "존나", "개새", "새끼야", "미친놈", "미친년",

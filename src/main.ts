@@ -1,5 +1,10 @@
 // 암각화몬: draw on paper → carve into the scanned Bangudae wall under raking light.
 
+import { pickMotif, type Motif } from "../shared/challenge";
+import type { ScoreResult } from "../shared/score";
+import { ChallengeUI, type TimerEnd } from "./challenge/challengeUI";
+import { guessLine, requestScore } from "./challenge/score";
+import { maskBBox, silhouettePNG } from "./challenge/silhouette";
 import { buildCarve } from "./carve/carve";
 import { writeShadow } from "./carve/shadow";
 import { tracingLabels } from "./carve/tracing";
@@ -9,6 +14,7 @@ import { countStamps, rasterizeMasks, setBrushRoughness } from "./draw/strokes";
 import { setupDrawTools } from "./ui/drawTools";
 import { Lab } from "./ui/lab";
 import { LightDial } from "./ui/lightDial";
+import { toast } from "./ui/notice";
 import { paintTracing } from "./ui/tracingCanvas";
 import { attachViewGestures } from "./ui/viewGestures";
 import { Camera, fitScale, niceLength, type CameraLimits } from "./wall/camera";
@@ -25,6 +31,9 @@ type View = "rock" | "rubbing" | "tracing";
 let mode: Mode = "draw";
 let viewMode: View = "rock";
 let busy = false;
+/** Current challenge prompt; null = free drawing. */
+let motif: Motif | null = null;
+const challengeUI = new ChallengeUI();
 
 /** The drawing rectangle on the wall, in mm (chosen with 자리 고르기). Its top-left stays fixed; its height follows the screen. */
 const rect = { x: 0, y: 0, w: 700, h: 700 };
@@ -34,6 +43,10 @@ const smooth = (t: number) => {
   return t * t * (3 - 2 * t);
 };
 const nextFrame = () => new Promise((r) => requestAnimationFrame(r));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Result for a challenge that ended with nothing drawn (no scoring call). */
+const EMPTY_RESULT: ScoreResult = { match: 0, guess: "빈 바위", comment: "아직 아무것도 새기지 않았어요. 다시 도전해 볼까요?", flagged: false };
 
 function animate(ms: number, step: (t: number) => void): Promise<void> {
   return new Promise((resolve) => {
@@ -210,9 +223,11 @@ async function main() {
   syncTools = setupDrawTools(ink, palette, pxPerMM);
   const hint = $("hint");
   const carveBtn = $<HTMLButtonElement>("carve");
+  const doneBtn = $<HTMLButtonElement>("done");
   const syncDraw = () => {
     hint.classList.toggle("hidden", ink.strokes.length > 0);
     carveBtn.disabled = ink.strokes.length === 0;
+    doneBtn.disabled = ink.strokes.length === 0 || !challengeUI.running;
     syncTools();
   };
   ink.onChange = syncDraw;
@@ -276,6 +291,11 @@ async function main() {
   // ---------------------------------------------------------------- light
   const dial = new LightDial(renderer.light);
   $("dialHost").appendChild(dial.el);
+  // The dial lives in the free-mode carve panel or in the challenge result panel.
+  const placeDial = () => {
+    const host = $(motif ? "dialHost2" : "dialHost");
+    if (dial.el.parentElement !== host) host.appendChild(dial.el);
+  };
   // The carving's cast shadow depends on the light: recompute it at most once per frame.
   let shadowQueued = false;
   let timelapseRunning = false;
@@ -348,7 +368,8 @@ async function main() {
     mode = m;
     document.body.classList.remove("mode-draw", "mode-place", "mode-carve");
     document.body.classList.add(`mode-${m}`);
-    step.textContent = { draw: "그리기", place: "자리 고르기", carve: "새기기" }[m];
+    step.textContent = motif ? "도전" : { draw: "그리기", place: "자리 고르기", carve: "새기기" }[m];
+    placeDial();
   };
 
   // ---------------------------------------------------------------- 자리 고르기
@@ -457,36 +478,62 @@ async function main() {
     progress.style.transform = "scaleX(0)";
   };
 
-  carveBtn.addEventListener("click", async () => {
-    if (busy || ink.strokes.length === 0) return;
-    busy = true;
-    requestFull();
-    carveBtn.textContent = "새기는 중…";
-    await nextFrame();
-
+  // Builds the carving of the current drawing in the drawing rectangle (no animation yet).
+  const prepareCarve = () => {
     const { masks, w, h, used } = rasterizeMasks(ink.strokes, palette.length, rect.w, rect.h, CARVE_MM_PER_PX);
     const mmPerPx = rect.w / w;
     const rectMM: [number, number, number, number] = [rect.x, rect.y, rect.w, h * mmPerPx];
     carve = { masks, used, w, h, mmPerPx, rectMM, rgba: new Uint8Array(0), height: new Float32Array(0) };
     traceDirty = true;
     recarve();
+    return carve;
+  };
+
+  // Paper lifts off; the drawing stays as a faint guide sketch on the bare rock; then the timelapse.
+  const presentCarve = async () => {
     renderer.carveAmount = 1;
     atHome = true;
     [camera.cx, camera.cy, camera.scale] = homeCamera();
     applyCamera();
-    carveBtn.textContent = "새기기";
     setView("rock", false);
     setMode("carve");
     setLight(defaultLight);
-
-    // Paper lifts off; the drawing stays as a faint guide sketch on the bare rock; then the timelapse.
     paper.style.transition = "none";
-    renderer.setCarve(new Uint8Array([128, 128, 0, 0]), 1, 1, carve.rectMM);
+    renderer.setCarve(new Uint8Array([128, 128, 0, 0]), 1, 1, carve!.rectMM);
     await animate(600, (t) => {
       paper.style.opacity = String(1 - smooth(t));
       inkCanvas.style.opacity = String(1 - (1 - GUIDE_OPACITY) * smooth(t));
     });
-    await playTimelapse();
+    if (ink.strokes.length > 0) await playTimelapse();
+    else inkCanvas.style.opacity = "0";
+  };
+
+  /** The carving's bounding box on the wall in mm (with a margin), or the drawing rectangle. */
+  const carveBBoxMM = (pad = 40): [number, number, number, number] => {
+    const c = carve!;
+    const bb = maskBBox(c.masks, c.w, c.h);
+    if (!bb) return c.rectMM;
+    const k = c.mmPerPx;
+    return [c.rectMM[0] + bb[0] * k - pad, c.rectMM[1] + bb[1] * k - pad, (bb[2] - bb[0]) * k + 2 * pad, (bb[3] - bb[1]) * k + 2 * pad];
+  };
+  /** Frames the carving in the view (the result panel is taller than the drawing panel). */
+  const focusCarving = () => {
+    const [x, y, w, h] = carveBBoxMM();
+    const home = rect.w / vw();
+    const s = Math.min(home * 2, Math.max(home * 0.75, Math.max(w / vw(), h / vh()) * 1.2));
+    atHome = false;
+    return animateCamera([x + w / 2, y + h / 2, s], 600);
+  };
+
+  carveBtn.addEventListener("click", async () => {
+    if (busy || ink.strokes.length === 0) return;
+    busy = true;
+    requestFull();
+    carveBtn.textContent = "새기는 중…";
+    await nextFrame();
+    prepareCarve();
+    carveBtn.textContent = "새기기";
+    await presentCarve();
     busy = false;
     wallHint.classList.add("show");
   });
@@ -504,9 +551,8 @@ async function main() {
     busy = false;
   });
 
-  $("redraw").addEventListener("click", async () => {
-    if (busy) return;
-    busy = true;
+  // Back to the paper: the carving sinks back into the rock and the drawing returns.
+  const backToDraw = async () => {
     lab.toggle(false);
     labBtn.setAttribute("aria-expanded", "false");
     setView("rock");
@@ -519,8 +565,127 @@ async function main() {
       renderer.invalidate();
     });
     setMode("draw");
+  };
+  $("redraw").addEventListener("click", async () => {
+    if (busy) return;
+    busy = true;
+    await backToDraw();
     busy = false;
   });
+
+  // ---------------------------------------------------------------- 도전 모드
+  // Prompt card → 3-2-1 → timer → drawing locks → silhouette to the scoring proxy while the
+  // carving timelapse plays → result.
+  const modeSeg = $("modeSeg");
+  const syncModeSeg = () =>
+    [...modeSeg.children].forEach((b) =>
+      b.setAttribute("aria-checked", String(((b as HTMLElement).dataset.mode === "challenge") === (motif != null))),
+    );
+  const openCard = (m: Motif) => {
+    motif = m;
+    document.body.classList.add("challenge");
+    ink.reset();
+    ink.enabled = false;
+    challengeUI.showCard(m);
+    step.textContent = "도전";
+    syncModeSeg();
+    syncDraw();
+  };
+  const quitChallenge = () => {
+    challengeUI.hideCard();
+    challengeUI.finish("quit");
+    motif = null;
+    document.body.classList.remove("challenge", "ch-running");
+    ink.enabled = true;
+    setMode(mode);
+    syncModeSeg();
+    syncDraw();
+  };
+  modeSeg.addEventListener("click", (e) => {
+    const want = (e.target as HTMLElement).dataset.mode;
+    if (busy || mode !== "draw" || !want) return;
+    if (want === "challenge" && !motif) openCard(pickMotif());
+    if (want === "free" && motif) quitChallenge();
+  });
+  $("cardSwap").addEventListener("click", () => motif && openCard(pickMotif(motif.id)));
+  $("cardStart").addEventListener("click", async () => {
+    if (busy || !motif) return;
+    busy = true;
+    challengeUI.hideCard();
+    document.body.classList.add("ch-running");
+    requestFull();
+    await challengeUI.countdown();
+    ink.enabled = true;
+    busy = false;
+    const timer = challengeUI.runTimer(motif);
+    syncDraw();
+    const why = await timer;
+    ink.enabled = false;
+    document.body.classList.remove("ch-running");
+    if (why !== "quit") finishChallenge(why);
+  });
+  doneBtn.addEventListener("click", () => challengeUI.finish("done"));
+  $("timerQuit").addEventListener("click", () => quitChallenge());
+
+  const scoreNum = $("scoreNum"), resGuess = $("resGuess"), resComment = $("resComment");
+  const mockBadge = $("mockBadge");
+  const resultButtons = [...document.querySelectorAll<HTMLButtonElement>(".result-actions button")];
+  const postRes = $<HTMLButtonElement>("postRes");
+  const showScoring = (m: Motif) => {
+    $("resPrompt").textContent = m.label;
+    scoreNum.textContent = "…";
+    resGuess.textContent = "새기는 동안 채점하고 있어요…";
+    resComment.textContent = "";
+    mockBadge.hidden = true;
+    resultButtons.forEach((b) => (b.disabled = true));
+  };
+  const showResult = async (r: ScoreResult) => {
+    mockBadge.hidden = !(r.mock || r.fallback);
+    mockBadge.textContent = r.mock ? "모의 채점" : "임시 점수";
+    resultButtons.forEach((b) => (b.disabled = false));
+    postRes.disabled = r.flagged || ink.strokes.length === 0;
+    if (r.flagged) {
+      scoreNum.textContent = "–";
+      resGuess.textContent = "이 그림은 점수를 드릴 수 없어요.";
+      resComment.textContent = "바위에는 모두가 함께 볼 수 있는 그림만 새길 수 있어요.";
+      return;
+    }
+    resGuess.textContent = guessLine(r);
+    resComment.textContent = r.comment;
+    const target = r.match ?? 0;
+    await animate(Math.min(1200, 300 + target * 10), (t) => (scoreNum.textContent = String(Math.round(target * smooth(t)))));
+  };
+
+  const finishChallenge = async (why: TimerEnd) => {
+    const m = motif!;
+    busy = true;
+    syncDraw();
+    if (why === "timeup") {
+      toast("그만! 시간이 다 됐어요", 1400);
+      await sleep(900);
+    }
+    prepareCarve();
+    const png = silhouettePNG(carve!.masks, carve!.w, carve!.h);
+    showScoring(m);
+    const scoring = png ? requestScore(png, m.id) : Promise.resolve(EMPTY_RESULT);
+    await presentCarve();
+    const r = await scoring;
+    if (motif !== m) return; // left the challenge meanwhile
+    await Promise.all([showResult(r), focusCarving()]);
+    busy = false;
+  };
+
+  const restartChallenge = async (m: Motif) => {
+    if (busy) return;
+    busy = true;
+    ink.reset();
+    await backToDraw();
+    openCard(m);
+    busy = false;
+  };
+  $("retry").addEventListener("click", () => motif && restartChallenge(motif));
+  $("nextPrompt").addEventListener("click", () => motif && restartChallenge(pickMotif(motif.id)));
+  syncModeSeg();
 }
 
 function fail(err: unknown) {

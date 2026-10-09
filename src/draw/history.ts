@@ -26,6 +26,12 @@ export class StrokeHistory {
     this.list = [];
   }
 
+  /** Empty drawing and no undo (a new challenge starts from a blank paper). */
+  reset() {
+    this.list = [];
+    this.past = [];
+  }
+
   undo() {
     const prev = this.past.pop();
     if (prev) this.list = prev;

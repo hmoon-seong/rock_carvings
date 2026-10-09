@@ -9,3 +9,5 @@ tools/wall_bake/demo/assets/*
 *:Zone.Identifier
 node_modules/
 dist/
+.env*.local
+.env

@@ -83,9 +83,11 @@ html, body {
 .draw-only { flex-direction: column; align-items: stretch; gap: 4px; }
 .row { display: flex; align-items: center; gap: 6px; }
 .col { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.mode-draw .carve-only, .mode-draw .place-only,
+.mode-draw .carve-only, .mode-draw .place-only, .mode-draw .result-only,
 .mode-carve .draw-only, .mode-carve .place-only,
-.mode-place .draw-only, .mode-place .carve-only { display: none !important; }
+.mode-place .draw-only, .mode-place .carve-only, .mode-place .result-only { display: none !important; }
+/* challenge: the result panel replaces the free-mode carve panel */
+body:not(.challenge) .result-only, .challenge .carve-only { display: none !important; }
 .grow { flex: 1; }
 
 button {
@@ -182,7 +184,7 @@ body:not(.view-rock) .dial-col { opacity: 0.35; pointer-events: none; }
 
 /* 자리 고르기 */
 .float-btn {
-  position: absolute; right: 12px; top: calc(10px + env(safe-area-inset-top));
+  position: absolute; right: 12px; bottom: 12px;
   font-size: 12px; padding: 7px 12px; color: var(--text);
   background: rgba(243, 239, 233, 0.9); border: 1px solid var(--line); border-radius: 999px;
 }
@@ -206,3 +208,90 @@ body:not(.mode-draw) .float-btn { display: none; }
 }
 .timelapse #progress { opacity: 1; }
 .timelapse #panel .carve-only, .timelapse .zoom { opacity: 0.4; pointer-events: none; transition: opacity 0.3s; }
+
+/* ---------------------------------------------------------------- 도전 모드 */
+.mode-seg {
+  position: absolute; right: 12px; top: calc(8px + env(safe-area-inset-top));
+  background: rgba(230, 223, 213, 0.92);
+}
+.mode-seg button { padding: 6px 11px; }
+body:not(.mode-draw) .mode-seg, .ch-running .mode-seg, .ch-running #brand { display: none; }
+.challenge #placeBtn, .challenge #hint { display: none; }
+#done { display: none; }
+.challenge #done { display: inline-block; }
+.challenge #carve { display: none; }
+
+.card {
+  position: absolute; left: 50%; top: 46%; width: min(300px, calc(100% - 40px));
+  transform: translate(-50%, -50%) scale(0.96); opacity: 0; pointer-events: none;
+  background: #f8f5f0; border: 1px solid var(--line); border-radius: 18px;
+  box-shadow: 0 10px 40px rgba(60, 45, 30, 0.18); padding: 22px 20px 14px; text-align: center;
+  transition: opacity 0.25s, transform 0.25s;
+}
+.card.show { opacity: 1; transform: translate(-50%, -50%); pointer-events: auto; }
+.card small { color: var(--muted); font-size: 12px; letter-spacing: 0.1em; }
+.card strong { display: block; font-size: 34px; line-height: 1.25; margin: 6px 0 4px; color: var(--accent); word-break: keep-all; }
+.card p { margin: 0 0 4px; color: var(--muted); font-size: 13px; word-break: keep-all; }
+.card .card-time { margin-top: 10px; color: var(--text); }
+.card-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
+
+#countdown {
+  position: absolute; inset: 0; display: none; place-items: center; pointer-events: none;
+  font-size: 120px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums;
+}
+#countdown.show { display: grid; }
+#countdown.tick { animation: count 0.8s ease-out both; }
+@keyframes count { from { transform: scale(1.5); opacity: 0; } 25% { opacity: 1; } to { transform: scale(0.85); opacity: 0.15; } }
+
+#timer {
+  position: absolute; left: 50%; top: calc(8px + env(safe-area-inset-top)); transform: translateX(-50%);
+  display: none; align-items: center; gap: 10px; overflow: hidden;
+  background: rgba(248, 245, 240, 0.95); border: 1px solid var(--line); border-radius: 999px;
+  padding: 4px 4px 4px 16px; box-shadow: 0 2px 10px rgba(60, 45, 30, 0.12); white-space: nowrap;
+}
+#timer.show { display: flex; }
+#timerLabel { font-size: 13px; color: var(--muted); }
+#timerNum { font-size: 22px; min-width: 1.6em; text-align: center; font-variant-numeric: tabular-nums; }
+#timerQuit { padding: 4px 10px; color: var(--muted); font-size: 13px; }
+#timerBar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--accent); transform-origin: 0 0; }
+#timer.warn { border-color: #d0573a; }
+#timer.warn #timerNum { color: #c0391f; animation: pulse 1s ease-in-out infinite; }
+#timer.warn #timerBar { background: #c0391f; }
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.3); } }
+
+#toast {
+  position: absolute; left: 50%; top: 38%; transform: translate(-50%, 8px); opacity: 0; pointer-events: none;
+  background: rgba(42, 37, 33, 0.92); color: #f3efe9; border-radius: 999px; padding: 10px 18px;
+  font-size: 15px; white-space: nowrap; transition: opacity 0.25s, transform 0.25s; z-index: 5;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* result panel */
+.result-only { flex-direction: column; align-items: stretch; gap: 8px; }
+.result-head { display: flex; align-items: center; gap: 10px; }
+.score { display: flex; align-items: baseline; gap: 1px; flex: none; min-width: 64px; }
+.score b { font-size: 40px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--accent); }
+.score span { font-size: 13px; color: var(--muted); }
+.verdict { flex: 1; min-width: 0; }
+.verdict p { margin: 0; word-break: keep-all; }
+.res-prompt { font-size: 11px; color: var(--muted); }
+.res-prompt b { color: var(--text); font-weight: 600; }
+#resGuess { font-size: 15px; font-weight: 600; margin: 1px 0; }
+#resComment { font-size: 12px; color: var(--muted); }
+.badge { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 999px; background: #e6dfd5; color: var(--muted); margin-left: 4px; vertical-align: 1px; }
+.badge[hidden] { display: none; }
+.result-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.result-actions button { padding: 10px 2px; font-size: 12.5px; white-space: nowrap; }
+button.pill { background: #e6dfd5; }
+button.pill:active { background: #ddd4c8; }
+
+/* modal dialog */
+.modal {
+  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px;
+  background: rgba(20, 16, 12, 0.45); opacity: 0; transition: opacity 0.2s;
+}
+.modal.show { opacity: 1; }
+.modal-box { background: var(--panel); border-radius: 16px; padding: 20px 18px 12px; max-width: 320px; width: 100%; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); }
+.modal-box h2 { margin: 0 0 6px; font-size: 16px; }
+.modal-box p { margin: 0 0 12px; color: var(--muted); word-break: keep-all; white-space: pre-line; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }

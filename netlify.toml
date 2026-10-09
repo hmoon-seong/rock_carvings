@@ -1,0 +1,8 @@
+# Netlify: static Vite build + two serverless functions (netlify/functions → /api/score, /api/wall).
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

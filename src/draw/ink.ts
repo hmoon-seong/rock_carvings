@@ -50,6 +50,12 @@ export class Ink {
     this.changed();
   }
 
+  reset() {
+    this.active = null;
+    this.history.reset();
+    this.changed();
+  }
+
   undo() {
     if (this.active) return;
     this.history.undo();

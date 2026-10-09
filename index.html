@@ -16,7 +16,28 @@
         <canvas id="ink" aria-label="그림판"></canvas>
         <div id="frame" aria-hidden="true"></div>
         <div id="progress" aria-hidden="true"></div>
+        <div class="seg mode-seg" id="modeSeg" role="radiogroup" aria-label="모드">
+          <button data-mode="free" role="radio">자유 그리기</button>
+          <button data-mode="challenge" role="radio">도전 모드</button>
+        </div>
         <button id="placeBtn" class="float-btn">자리 고르기</button>
+        <div id="card" class="card" role="dialog" aria-label="제시어">
+          <small>제시어</small>
+          <strong id="cardLabel"></strong>
+          <p id="cardHint"></p>
+          <p class="card-time"><span id="cardTime"></span> 안에 그려 보세요</p>
+          <div class="card-actions">
+            <button id="cardSwap" class="text">다른 제시어</button>
+            <button id="cardStart" class="primary">시작</button>
+          </div>
+        </div>
+        <div id="countdown" aria-live="assertive"></div>
+        <div id="timer" aria-live="polite">
+          <span id="timerLabel"></span><b id="timerNum"></b>
+          <button id="timerQuit" aria-label="그만두기">✕</button>
+          <i id="timerBar"></i>
+        </div>
+        <div id="toast" role="status"></div>
         <div id="brand">암각화몬 <span id="step">그리기</span></div>
         <p id="hint">손가락으로 그려 보세요<br /><small>고래 · 사슴 · 사람 · 배</small></p>
         <p id="wallhint">끌어서 이동 · 두 손가락으로 확대</p>
@@ -44,6 +65,7 @@
             <button id="clear" class="text">모두 지우기</button>
             <span class="grow"></span>
             <button id="carve" class="primary">새기기</button>
+            <button id="done" class="primary">다 그렸어요</button>
           </div>
         </div>
         <div class="tools place-only">
@@ -51,6 +73,26 @@
           <span class="grow"></span>
           <button id="placeCancel" class="text">취소</button>
           <button id="placeOk" class="primary">여기에 그리기</button>
+        </div>
+        <div class="tools result-only">
+          <div class="result-head">
+            <div class="dial-col">
+              <div id="dialHost2"></div>
+              <small>측광</small>
+            </div>
+            <div class="score"><b id="scoreNum">…</b><span>점</span></div>
+            <div class="verdict">
+              <p class="res-prompt">제시어 <b id="resPrompt"></b> <span id="mockBadge" class="badge" hidden>모의 채점</span></p>
+              <p id="resGuess"></p>
+              <p id="resComment"></p>
+            </div>
+          </div>
+          <div class="result-actions">
+            <button id="retry" class="pill">다시 도전</button>
+            <button id="nextPrompt" class="pill">다른 제시어</button>
+            <button id="shareRes" class="pill">공유하기</button>
+            <button id="postRes" class="primary">벽에 남기기</button>
+          </div>
         </div>
         <div class="tools carve-only">
           <div class="dial-col">

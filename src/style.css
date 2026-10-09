@@ -295,3 +295,34 @@ button.pill:active { background: #ddd4c8; }
 .modal-box h2 { margin: 0 0 6px; font-size: 16px; }
 .modal-box p { margin: 0 0 12px; color: var(--muted); word-break: keep-all; white-space: pre-line; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+
+/* free-mode carve panel: share / post row under the light + view controls */
+.carve-only { flex-direction: column; align-items: stretch; gap: 8px; }
+.carve-main { display: flex; align-items: center; gap: 10px; }
+.carve-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.carve-actions button { padding: 10px 8px; }
+.timelapse #panel .carve-actions, .timelapse #panel .result-actions { opacity: 0.4; pointer-events: none; }
+
+/* ---------------------------------------------------------------- share sheet */
+.overlay {
+  position: fixed; inset: 0; z-index: 15; display: flex; align-items: center; justify-content: center;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); background: rgba(20, 16, 12, 0.6);
+  opacity: 0; transition: opacity 0.2s;
+}
+.overlay.show { opacity: 1; }
+.overlay[hidden] { display: none; }
+.share-box {
+  width: 100%; max-width: 420px; max-height: 100%; display: flex; flex-direction: column; gap: 10px;
+  background: var(--panel); border-radius: 18px; padding: 14px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+.share-preview { position: relative; flex: 1 1 auto; min-height: 0; display: grid; place-items: center; }
+.share-preview img { display: block; max-width: 100%; max-height: min(56dvh, 520px); border-radius: 10px; background: #2a2521; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25); }
+.share-busy { position: absolute; inset: 0; display: grid; place-items: center; color: #eee6dc; opacity: 0; pointer-events: none; transition: opacity 0.2s; text-shadow: 0 1px 3px #000; }
+.overlay.busy .share-busy { opacity: 1; }
+.overlay.busy .share-preview img { filter: brightness(0.7); }
+.share-msg { position: relative; display: block; }
+.share-msg input {
+  width: 100%; font: inherit; font-size: 16px; padding: 10px 52px 10px 14px; border-radius: 12px;
+  border: 1px solid var(--line); background: #fff; color: var(--text);
+}
+.share-msg small { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 11px; }

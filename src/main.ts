@@ -13,6 +13,8 @@ import { Ink } from "./draw/ink";
 import { countStamps, rasterizeMasks, setBrushRoughness } from "./draw/strokes";
 import { setupDrawTools } from "./ui/drawTools";
 import { Lab } from "./ui/lab";
+import { SHARE_SIZES, shareCrop } from "./share/layout";
+import { ShareSheet } from "./share/shareSheet";
 import { LightDial } from "./ui/lightDial";
 import { toast } from "./ui/notice";
 import { paintTracing } from "./ui/tracingCanvas";
@@ -33,6 +35,7 @@ let viewMode: View = "rock";
 let busy = false;
 /** Current challenge prompt; null = free drawing. */
 let motif: Motif | null = null;
+let challengeResult: ScoreResult | null = null;
 const challengeUI = new ChallengeUI();
 
 /** The drawing rectangle on the wall, in mm (chosen with 자리 고르기). Its top-left stays fixed; its height follows the screen. */
@@ -203,14 +206,12 @@ async function main() {
   layout();
 
   // ---------------------------------------------------------------- textures
-  let fullRequested = false;
-  const requestFull = () => {
-    if (fullRequested) return;
-    fullRequested = true;
-    loadFull(meta)
+  let fullLoad: Promise<void> | null = null;
+  /** Starts loading the full-res wall (once); resolves when it is shown (or failed). */
+  const requestFull = () =>
+    (fullLoad ??= loadFull(meta)
       .then((img) => renderer.setWall(img, "full"))
-      .catch((err) => console.warn("full-res wall failed, staying on overview", err));
-  };
+      .catch((err) => console.warn("full-res wall failed, staying on overview", err)));
   loadOverview(meta)
     .then((img) => {
       renderer.setWall(img, "overview");
@@ -595,6 +596,7 @@ async function main() {
     challengeUI.hideCard();
     challengeUI.finish("quit");
     motif = null;
+    challengeResult = null;
     document.body.classList.remove("challenge", "ch-running");
     ink.enabled = true;
     setMode(mode);
@@ -671,6 +673,7 @@ async function main() {
     await presentCarve();
     const r = await scoring;
     if (motif !== m) return; // left the challenge meanwhile
+    challengeResult = r;
     await Promise.all([showResult(r), focusCarving()]);
     busy = false;
   };
@@ -686,6 +689,25 @@ async function main() {
   $("retry").addEventListener("click", () => motif && restartChallenge(motif));
   $("nextPrompt").addEventListener("click", () => motif && restartChallenge(pickMotif(motif.id)));
   syncModeSeg();
+
+  // ---------------------------------------------------------------- 공유하기 (share image)
+  const share = new ShareSheet();
+  const openShare = () => {
+    if (busy || !carve) return;
+    const r = challengeResult;
+    const badge = motif ? `도전 · ${motif.label}${r && !r.flagged && r.match != null ? ` · ${r.match}점` : ""}` : undefined;
+    share.open({
+      badge,
+      rock: async (size) => {
+        await Promise.race([requestFull(), sleep(6000)]);
+        const { w, h, textFrac } = SHARE_SIZES[size];
+        const crop = shareCrop(carveBBoxMM(60), meta.width_mm, meta.height_mm, w / h, textFrac);
+        return renderer.snapshot(crop, w, h);
+      },
+    });
+  };
+  $("shareFree").addEventListener("click", openShare);
+  $("shareRes").addEventListener("click", openShare);
 }
 
 function fail(err: unknown) {

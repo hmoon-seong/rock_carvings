@@ -95,6 +95,7 @@
           </div>
         </div>
         <div class="tools carve-only">
+          <div class="carve-main">
           <div class="dial-col">
             <div id="dialHost"></div>
             <small>측광</small>
@@ -112,8 +113,34 @@
               <button id="redraw" class="text">다시 그리기</button>
             </div>
           </div>
+          </div>
+          <div class="carve-actions">
+            <button id="shareFree" class="pill">공유하기</button>
+            <button id="postFree" class="primary">벽에 남기기</button>
+          </div>
         </div>
       </footer>
+      <div id="share" class="overlay" hidden>
+        <div class="share-box" role="dialog" aria-label="공유하기">
+          <div class="share-preview"><img id="sharePreview" alt="공유 이미지 미리보기" /><span class="share-busy">만드는 중…</span></div>
+          <label class="share-msg">
+            <input id="shareMsg" type="text" enterkeyhint="done" placeholder="남기고 싶은 말 (선택)" autocomplete="off" />
+            <small id="shareCount">0/40</small>
+          </label>
+          <div class="row">
+            <div class="seg" id="shareSize" role="radiogroup" aria-label="크기">
+              <button data-size="story" role="radio">스토리 9:16</button>
+              <button data-size="square" role="radio">정사각 1:1</button>
+            </div>
+          </div>
+          <div class="row">
+            <button id="shareClose" class="text">닫기</button>
+            <span class="grow"></span>
+            <button id="shareSave" class="pill">저장</button>
+            <button id="shareGo" class="primary">공유하기</button>
+          </div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

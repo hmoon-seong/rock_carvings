@@ -151,15 +151,40 @@ export class WallRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
   }
 
+  /**
+   * Renders the mm rectangle `view` into a w × h image (lit rock, no rubbing) and returns it
+   * as a 2D canvas. The on-screen canvas is resized back on the next frame, before it is painted.
+   */
+  snapshot(view: [number, number, number, number], w: number, h: number): HTMLCanvasElement {
+    const saved = { view: this.view, rubbing: this.rubbing };
+    this.view = view;
+    this.rubbing = 0;
+    this.canvas.width = w;
+    this.canvas.height = h;
+    this.render(w, h);
+    const out = document.createElement("canvas");
+    out.width = w;
+    out.height = h;
+    out.getContext("2d")!.drawImage(this.canvas, 0, 0);
+    Object.assign(this, saved);
+    this.dirty = true;
+    return out;
+  }
+
   private draw() {
     this.dirty = false;
-    const { gl, canvas, u } = this;
+    const { canvas } = this;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
     }
+    this.render(w, h);
+  }
+
+  private render(w: number, h: number) {
+    const { gl, u } = this;
     gl.viewport(0, 0, w, h);
     const [vx, vy, vw, vh] = this.view;
     gl.uniform2f(u.uCenterMM, vx + vw / 2, vy + vh / 2);

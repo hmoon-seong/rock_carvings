@@ -1,4 +1,4 @@
-// The real (non-mock) paths with a stubbed fetch: Anthropic Messages API and Supabase REST.
+// The real (non-mock) paths with a stubbed fetch: DashScope (OpenAI-compatible) chat API and Supabase REST.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleScore } from "./score";
 import { handleWall } from "./wall";
@@ -6,14 +6,14 @@ import { handleWall } from "./wall";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 const draft = { x_mm: 1000, y_mm: 1000, w_mm: 300, h_mm: 200, src_w: 300, src_h: 200, strokes: [{ c: 0, s: 20, seed: 1, p: [0, 0, 50, 50] }] };
 
-function claudeReply(text: string) {
+function qwenReply(text: string) {
   return new Response(
     JSON.stringify({
-      id: "msg_1", type: "message", role: "assistant", model: "claude-haiku-5-5",
-      content: [{ type: "text", text }], stop_reason: "end_turn", stop_sequence: null,
-      usage: { input_tokens: 10, output_tokens: 10 },
+      id: "chatcmpl-1", object: "chat.completion", model: "qwen3-vl-flash",
+      choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
     }),
-    { status: 200, headers: { "content-type": "application/json", "request-id": "req_1" } },
+    { status: 200, headers: { "content-type": "application/json" } },
   );
 }
 
@@ -35,25 +35,39 @@ const req = (path: string, body?: unknown, ip = "30.0.0.1") =>
   new Request(`http://x${path}`, body ? { method: "POST", headers: { "x-forwarded-for": ip }, body: JSON.stringify(body) } : { headers: { "x-forwarded-for": ip } });
 
 describe("score with an API key", () => {
-  it("sends the PNG to claude-haiku-5-5 and parses a fenced JSON reply", async () => {
-    stubFetch(() => claudeReply('```json\n{"match": 83, "guess": "고래", "comment": "멋진 고래예요!", "flagged": false}\n```'));
-    const res = await handleScore(req("/api/score", { image: PNG, prompt: "whale" }, "30.0.0.1"), { ANTHROPIC_API_KEY: "sk-test" });
+  it("sends the PNG to qwen3-vl-flash and parses a fenced JSON reply", async () => {
+    stubFetch(() => qwenReply('```json\n{"match": 83, "guess": "고래", "comment": "멋진 고래예요!", "flagged": false}\n```'));
+    const res = await handleScore(req("/api/score", { image: PNG, prompt: "whale" }, "30.0.0.1"), { DASHSCOPE_API_KEY: "sk-test" });
     expect(await res.json()).toEqual({ match: 83, guess: "고래", comment: "멋진 고래예요!", flagged: false });
-    const sent = calls[0].body as { model: string; messages: { content: { type: string; source?: { media_type: string; data: string } }[] }[] };
-    expect(calls[0].url).toContain("/v1/messages");
-    expect(sent.model).toBe("claude-haiku-5-5");
-    expect(sent.messages[0].content[0]).toMatchObject({ type: "image", source: { type: "base64", media_type: "image/png", data: PNG } });
+    const sent = calls[0].body as { model: string; messages: { role: string; content: unknown }[] };
+    expect(calls[0].url).toBe("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions");
+    expect((calls[0].init?.headers as Record<string, string>).authorization).toBe("Bearer sk-test");
+    expect(sent.model).toBe("qwen3-vl-flash");
+    expect(sent.messages[0].role).toBe("system");
+    expect((sent.messages[1].content as unknown[])[0]).toEqual({ type: "image_url", image_url: { url: `data:image/png;base64,${PNG}` } });
+  });
+  it("honors DASHSCOPE_BASE_URL and QWEN_MODEL", async () => {
+    stubFetch(() => qwenReply('{"match": 70, "guess": "사슴", "comment": "좋아요!", "flagged": false}'));
+    const env = { DASHSCOPE_API_KEY: "sk-test", DASHSCOPE_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1/", QWEN_MODEL: "qwen3-vl-plus" };
+    await handleScore(req("/api/score", { image: PNG, prompt: "deer" }, "30.0.0.5"), env);
+    expect(calls[0].url).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions");
+    expect((calls[0].body as { model: string }).model).toBe("qwen3-vl-plus");
+  });
+  it("falls back to the neutral result on an API error", async () => {
+    stubFetch(() => new Response('{"error":{"message":"Invalid API-key"}}', { status: 401 }));
+    const r = await (await handleScore(req("/api/score", { image: PNG }, "30.0.0.6"), { DASHSCOPE_API_KEY: "bad" })).json();
+    expect(r.fallback).toBe(true);
   });
   it("falls back to the neutral result on a bad reply", async () => {
-    stubFetch(() => claudeReply("Sorry, I can't."));
-    const r = await (await handleScore(req("/api/score", { image: PNG }, "30.0.0.2"), { ANTHROPIC_API_KEY: "sk-test" })).json();
+    stubFetch(() => qwenReply("Sorry, I can't."));
+    const r = await (await handleScore(req("/api/score", { image: PNG }, "30.0.0.2"), { DASHSCOPE_API_KEY: "sk-test" })).json();
     expect(r.fallback).toBe(true);
     expect(r.match).toBe(50);
   });
 });
 
 describe("wall with Supabase", () => {
-  const env = { SUPABASE_URL: "https://demo.supabase.co", SUPABASE_ANON_KEY: "anon", ANTHROPIC_API_KEY: "sk-test" };
+  const env = { SUPABASE_URL: "https://demo.supabase.co", SUPABASE_ANON_KEY: "anon", DASHSCOPE_API_KEY: "sk-test" };
   it("lists carvings in a rectangle", async () => {
     stubFetch(() => new Response(JSON.stringify([{ ...draft, id: "a", created_at: "x" }, { ...draft, x_mm: 5000, id: "b", created_at: "x" }]), { headers: { "content-type": "application/json" } }));
     const r = await (await handleWall(req("/api/wall?x=900&y=900&w=1000&h=1000"), env)).json();
@@ -64,8 +78,8 @@ describe("wall with Supabase", () => {
   });
   it("moderates, then inserts without the message", async () => {
     stubFetch((url) =>
-      url.includes("anthropic")
-        ? claudeReply('{"flagged": false, "message_flagged": false}')
+      url.includes("dashscope")
+        ? qwenReply('{"flagged": false, "message_flagged": false}')
         : new Response(JSON.stringify([{ ...draft, id: "new", created_at: "now" }]), { status: 201, headers: { "content-type": "application/json" } }),
     );
     const r = await (await handleWall(req("/api/wall", { draft, image: PNG, message: "안녕하세요" }, "30.0.0.3"), env)).json();
@@ -75,7 +89,7 @@ describe("wall with Supabase", () => {
     expect(JSON.stringify(insert.body)).not.toContain("안녕하세요");
   });
   it("rejects a flagged drawing and stores nothing", async () => {
-    stubFetch((url) => (url.includes("anthropic") ? claudeReply('{"flagged": true, "message_flagged": false}') : new Response("{}", { status: 500 })));
+    stubFetch((url) => (url.includes("dashscope") ? qwenReply('{"flagged": true, "message_flagged": false}') : new Response("{}", { status: 500 })));
     const r = await (await handleWall(req("/api/wall", { draft, image: PNG, message: "" }, "30.0.0.4"), env)).json();
     expect(r).toEqual({ ok: false, reason: "flagged" });
     expect(calls.some((c) => c.url.includes("supabase"))).toBe(false);

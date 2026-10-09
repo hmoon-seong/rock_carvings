@@ -1,21 +1,27 @@
-// Claude calls of the proxy: scoring a drawing and moderating a wall post.
-// The API key is read from the server environment only (ANTHROPIC_API_KEY).
+// Qwen (DashScope) calls of the proxy: scoring a drawing and moderating a wall post.
+// The API key is read from the server environment only (DASHSCOPE_API_KEY).
+// Uses DashScope's OpenAI-compatible chat API with plain fetch (no SDK).
 
-import Anthropic from "@anthropic-ai/sdk";
 import { motifById } from "../shared/challenge.ts";
 import { parseScore, stripFences, type ScoreResult } from "../shared/score.ts";
+import type { Env } from "./http.ts";
 
-export const MODEL = "claude-haiku-5-5";
+/** International endpoint by default; set DASHSCOPE_BASE_URL for the mainland China one
+ *  (https://dashscope.aliyuncs.com/compatible-mode/v1). */
+export const BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+export const MODEL = "qwen3-vl-flash";
 
-let client: Anthropic | null = null;
-let clientKey = "";
-function getClient(apiKey: string): Anthropic {
-  if (!client || clientKey !== apiKey) {
-    // fetch is looked up per call (not captured once), so tests and platforms can swap it.
-    client = new Anthropic({ apiKey, timeout: 20_000, maxRetries: 1, fetch: (url, init) => globalThis.fetch(url, init) });
-    clientKey = apiKey;
-  }
-  return client;
+export interface QwenConfig {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+/** Null without a key (the handlers then use the mock / word-list fallback). */
+export function qwenConfig(env: Env): QwenConfig | null {
+  const apiKey = env.DASHSCOPE_API_KEY;
+  if (!apiKey) return null;
+  return { apiKey, baseUrl: (env.DASHSCOPE_BASE_URL || BASE_URL).replace(/\/+$/, ""), model: env.QWEN_MODEL || MODEL };
 }
 
 const SCORE_SYSTEM = `You judge a drawing game at the Bangudae Petroglyphs (반구대 암각화) in Ulsan, Korea.
@@ -36,32 +42,37 @@ Reply with JSON only, no other text:
 - flagged: true only if the drawing is obscene, sexual (e.g. genitals), hateful (e.g. a swastika), or shows offensive words or symbols.
 - message_flagged: true if the message contains profanity, insults, sexual or hateful content, personal data (phone numbers, addresses), or advertising. Ordinary, silly or misspelled messages are fine.`;
 
-function textOf(msg: Anthropic.Message): string {
-  return msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
-}
+type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
-async function ask(apiKey: string, system: string, content: Anthropic.ContentBlockParam[]): Promise<string> {
-  const msg = await getClient(apiKey).messages.create({
-    model: MODEL,
-    max_tokens: 2000,
-    output_config: { effort: "low" },
-    system,
-    messages: [{ role: "user", content }],
+async function ask(cfg: QwenConfig, system: string, content: Part[]): Promise<string> {
+  const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
+    body: JSON.stringify({
+      model: cfg.model,
+      max_tokens: 500,
+      temperature: 0.3,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content },
+      ],
+    }),
+    signal: AbortSignal.timeout(20_000),
   });
-  if (msg.stop_reason === "refusal") throw new Error("refusal");
-  return textOf(msg);
+  if (!res.ok) throw new Error(`dashscope ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = (await res.json()) as { choices?: { message?: { content?: unknown } }[] };
+  const text = data.choices?.[0]?.message?.content;
+  if (typeof text !== "string") throw new Error("dashscope: no text in reply");
+  return text;
 }
 
-const image = (b64: string): Anthropic.ImageBlockParam => ({
-  type: "image",
-  source: { type: "base64", media_type: "image/png", data: b64 },
-});
+const image = (b64: string): Part => ({ type: "image_url", image_url: { url: `data:image/png;base64,${b64}` } });
 
 /** Throws on API errors or an unusable reply (the handler turns that into the neutral result). */
-export async function scoreDrawing(apiKey: string, pngB64: string, promptId?: string | null): Promise<ScoreResult> {
+export async function scoreDrawing(cfg: QwenConfig, pngB64: string, promptId?: string | null): Promise<ScoreResult> {
   const m = motifById(promptId);
   const task = m ? `Prompt: ${m.label} (${m.en}).` : "No prompt (free drawing).";
-  const text = await ask(apiKey, SCORE_SYSTEM, [image(pngB64), { type: "text", text: task }]);
+  const text = await ask(cfg, SCORE_SYSTEM, [image(pngB64), { type: "text", text: task }]);
   const r = parseScore(text);
   if (!r) throw new Error(`unparseable reply: ${text.slice(0, 200)}`);
   return r;
@@ -72,8 +83,8 @@ export interface Moderation {
   message_flagged: boolean;
 }
 
-export async function moderatePost(apiKey: string, pngB64: string, message: string): Promise<Moderation> {
-  const text = await ask(apiKey, MODERATE_SYSTEM, [
+export async function moderatePost(cfg: QwenConfig, pngB64: string, message: string): Promise<Moderation> {
+  const text = await ask(cfg, MODERATE_SYSTEM, [
     image(pngB64),
     { type: "text", text: message ? `Message: """${message}"""` : "No message." },
   ]);

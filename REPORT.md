@@ -46,13 +46,13 @@ npm run preview        # 빌드 결과 확인 (/api/* 포함)
 |---|---|
 | 제시어 10개와 타이머 설정 | `shared/challenge.ts` (`CHALLENGE.seconds = 30`, `countdown = 3`, `warnSeconds = 5`) |
 | 채점 프록시 | `server/score.ts` (Netlify 함수 `netlify/functions/score.ts` → `POST /api/score`) |
-| Claude 호출 | `server/claude.ts` |
+| Qwen 호출 | `server/qwen.ts` |
 | 모의 채점, 응답 파싱 | `shared/score.ts` |
 | 화면 | `src/challenge/` |
 
 **모의 채점**은 두 경우에 동작합니다.
 
-- 서버에 `ANTHROPIC_API_KEY`가 없으면 서버가 모의 결과를 돌려줍니다.
+- 서버에 `DASHSCOPE_API_KEY`가 없으면 서버가 모의 결과를 돌려줍니다.
 - 프록시에 닿지 않으면(정적 호스팅, 오프라인 등) 클라이언트가 같은 함수로 모의 결과를 만듭니다.
 
 모의 결과는 그림 해시로 정해지므로 같은 그림은 항상 같은 점수(35–95)를 받습니다. 미리 써 둔 한국어 코멘트를 쓰고, 결과에 「모의 채점」 배지를 붙입니다. 진짜 채점이 실패했을 때는 중립 결과(50점, 「채점 도우미가 잠깐 쉬는 중이에요…」)와 「임시 점수」 배지를 보여 줍니다.
@@ -127,7 +127,7 @@ npm run preview        # 빌드 결과 확인 (/api/* 포함)
 | 항목 | 결정 | 이유와 메모 |
 |---|---|---|
 | 호스팅 | **Netlify** (정적 `dist/` + Functions v2) | 함수가 웹 표준 `Request → Response`라서 Vite 설정 없이 `netlify.toml` 몇 줄로 끝납니다. 같은 핸들러를 Vite dev/preview 서버에도 붙여서(`vite.config.ts`) 로컬에서는 Netlify CLI가 필요 없습니다. 서버 코드는 `server/`, 함수 래퍼는 `netlify/functions/`에 있습니다. |
-| Claude 호출 | 공식 SDK `@anthropic-ai/sdk`(서버 전용), 모델 `claude-haiku-5-5`, `output_config.effort: "low"`, `max_tokens 2000` | Haiku 5.5는 adaptive thinking이 기본으로 켜져 있어서, 빠른 채점을 위해 effort를 low로 낮췄습니다. 이미지는 `{type:"image", source:{type:"base64", media_type:"image/png"}}` 형식으로 보냅니다. 응답은 JSON만 받고, 코드 펜스를 벗긴 뒤 값을 검증·클램프합니다. 클라이언트 번들에는 SDK와 키가 들어가지 않습니다(빌드 결과물에서 확인). |
+| AI 호출 (Qwen) | Alibaba Cloud DashScope의 OpenAI 호환 API(`/compatible-mode/v1/chat/completions`)를 서버에서 `fetch`로 직접 호출. 기본 모델 `qwen3-vl-flash`, `max_tokens 500` | SDK 없이 fetch만 씁니다. 이미지는 `{type:"image_url", image_url:{url:"data:image/png;base64,…"}}` 형식으로 보냅니다. `DASHSCOPE_BASE_URL`(기본: 국제 엔드포인트)과 `QWEN_MODEL`로 바꿀 수 있습니다. 응답은 JSON만 받고, 코드 펜스를 벗긴 뒤 값을 검증·클램프합니다. 키는 클라이언트 번들에 들어가지 않습니다. |
 | 채점용 이미지 | 탁본 마스크: 밝은 종이 위 어두운 실루엣, 그림 둘레로 크롭, 긴 변 384 px 이하 | 보통 10–20 KB입니다. |
 | 서버 검사 실패 시 | **채점**: 실패하면 중립 결과를 줍니다(UI를 깨지 않음). **벽 게시**: 검사가 실패하면 저장하지 않습니다(fail closed). | 벽은 모두가 보는 곳이라 안전한 쪽을 택했습니다. |
 | 요청 제한 (IP별, 메모리) | 채점 6회/분·60회/시간, 벽 읽기 120회/분, 벽 게시 3회/10분·20회/일 | 함수 인스턴스마다 따로 세는 최선 노력 방식입니다. 엄격하게 하려면 공유 저장소가 필요합니다. |
@@ -141,7 +141,7 @@ npm run preview        # 빌드 결과 확인 (/api/* 포함)
 | 공유 이미지 크기 | 1080×1920(기본), 1080×1080 | 글자 띠 높이는 각각 30%, 38%입니다. |
 | 위치 제한 | 중심 35.6087, 129.1774, 반경 1.5 km | 대략적인 좌표입니다. `// TODO: verify viewing deck coordinates`를 달아 두었습니다. GPS 오차와 박물관 길까지 고려해서 반경을 넉넉하게 잡았습니다. |
 | 화면 배치 | 그리기 화면: 「자유 그리기 / 도전 모드」는 오른쪽 위로, 「자리 고르기」는 오른쪽 아래로 옮겼고, 「모두의 벽」은 왼쪽 아래에 새로 넣었습니다. 자유 모드 새김 화면에는 [공유하기] [벽에 남기기] 줄을 추가했습니다. | |
-| 의존성 추가 | `@anthropic-ai/sdk`(서버 전용), `@types/node`(개발용) | 이 둘뿐입니다. |
+| 의존성 추가 | `@types/node`(개발용) | 이것뿐입니다. AI 호출은 SDK 없이 fetch로 합니다. |
 
 ---
 
@@ -153,7 +153,7 @@ npm run preview        # 빌드 결과 확인 (/api/* 포함)
 
 | 변수 | 없을 때 동작 |
 |---|---|
-| `ANTHROPIC_API_KEY` | 모의 채점, 메시지만 단어 목록으로 검사 |
+| `DASHSCOPE_API_KEY` | 모의 채점, 메시지만 단어 목록으로 검사 |
 | `SUPABASE_URL` (예: `https://xxxx.supabase.co`) | 이 기기 localStorage에만 저장(예시 새김 포함) |
 | `SUPABASE_ANON_KEY` (Project Settings → API의 anon public key) | 위와 같음 |
 | `MOCK=1` (선택, 로컬 전용) | 키가 있어도 모의 모드로 실행 |
@@ -186,7 +186,7 @@ CLI로 배포할 수도 있습니다: `npx netlify-cli deploy --build --prod`
 
 이 환경에는 키와 계정이 없어서 아래는 실제 서비스로 확인하지 못했습니다.
 
-- **Claude 채점과 검사**: SDK 요청 형식(모델, 이미지 블록)과 응답 파싱은 fetch를 가짜로 바꾼 테스트로만 확인했습니다(`server/proxy.test.ts`). 실제 키로 응답 시간과 점수 분포를 꼭 한 번 봐 주세요. 너무 후하거나 짜면 `server/claude.ts`의 프롬프트를 조정하면 됩니다.
+- **Qwen 채점과 검사**: 요청 형식(모델, 이미지)과 응답 파싱은 fetch를 가짜로 바꾼 테스트로만 확인했습니다(`server/proxy.test.ts`). 실제 키로 응답 시간과 점수 분포를 꼭 한 번 봐 주세요. 너무 후하거나 짜면 `server/qwen.ts`의 프롬프트를 조정하면 됩니다.
 - **Supabase**: REST URL, 헤더, 필터, RLS 정책은 가짜 fetch로만 확인했습니다.
 - **Netlify 배포**: 함수 파일을 Node 모듈로 직접 실행해 동작은 확인했지만, 실제 배포는 해 보지 않았습니다.
 - **iOS Safari의 파일 공유**와 **Android Chrome 공유 시트**: 실제 기기 확인이 필요합니다. 헤드리스에서는 [저장] 경로만 확인했습니다.

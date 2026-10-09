@@ -6,6 +6,8 @@ export interface GestureHandlers {
   pan: (dxPx: number, dyPx: number) => void;
   zoom: (factor: number, sx: number, sy: number) => void; // sx, sy relative to the element
   start?: () => void;
+  /** A short tap without movement (sx, sy relative to the element). */
+  tap?: (sx: number, sy: number) => void;
 }
 
 /** Controls inside the view (buttons, the lab sheet) keep their own pointer and wheel input. */
@@ -15,6 +17,7 @@ const ownsInput = (e: Event) => (e.target as Element | null)?.closest?.(OWN_INPU
 export function attachViewGestures(el: HTMLElement, h: GestureHandlers) {
   const pts = new Map<number, { x: number; y: number }>();
   let lastTap = 0;
+  let down: { x: number; y: number; t: number; moved: boolean } | null = null;
   const local = (e: { clientX: number; clientY: number }) => {
     const r = el.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -29,6 +32,7 @@ export function attachViewGestures(el: HTMLElement, h: GestureHandlers) {
     el.setPointerCapture(e.pointerId);
     pts.set(e.pointerId, local(e));
     h.start?.();
+    down = pts.size === 1 ? { ...local(e), t: performance.now(), moved: false } : null;
     if (pts.size === 1) {
       const now = performance.now();
       if (now - lastTap < 300) {
@@ -47,6 +51,7 @@ export function attachViewGestures(el: HTMLElement, h: GestureHandlers) {
       h.pan(p.x - prev.x, p.y - prev.y);
       pts.set(e.pointerId, p);
       if (Math.hypot(p.x - prev.x, p.y - prev.y) > 2) lastTap = 0;
+      if (down && Math.hypot(p.x - down.x, p.y - down.y) > 6) down.moved = true;
     } else if (pts.size === 2) {
       const before = mid();
       pts.set(e.pointerId, local(e));
@@ -54,11 +59,16 @@ export function attachViewGestures(el: HTMLElement, h: GestureHandlers) {
       h.pan(after.x - before.x, after.y - before.y);
       if (before.d > 0) h.zoom(after.d / before.d, after.x, after.y);
       lastTap = 0;
+      down = null;
     }
   });
 
   const end = (e: PointerEvent) => pts.delete(e.pointerId);
-  el.addEventListener("pointerup", end);
+  el.addEventListener("pointerup", (e) => {
+    if (pts.has(e.pointerId) && pts.size === 1 && down && !down.moved && performance.now() - down.t < 350) h.tap?.(down.x, down.y);
+    down = null;
+    end(e);
+  });
   el.addEventListener("pointercancel", end);
 
   el.addEventListener(

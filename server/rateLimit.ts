@@ -4,11 +4,14 @@
 
 export class RateLimiter {
   private hits = new Map<string, number[]>();
+  private limit: number;
+  private windowMs: number;
 
-  constructor(
-    private limit: number,
-    private windowMs: number,
-  ) {}
+  // (No parameter properties: server code stays plain enough for Node's type stripping.)
+  constructor(limit: number, windowMs: number) {
+    this.limit = limit;
+    this.windowMs = windowMs;
+  }
 
   /** Records a request; false if the client is over the limit (the request is not counted then). */
   hit(key: string, now = Date.now()): boolean {

@@ -11,7 +11,8 @@ let client: Anthropic | null = null;
 let clientKey = "";
 function getClient(apiKey: string): Anthropic {
   if (!client || clientKey !== apiKey) {
-    client = new Anthropic({ apiKey, timeout: 20_000, maxRetries: 1 });
+    // fetch is looked up per call (not captured once), so tests and platforms can swap it.
+    client = new Anthropic({ apiKey, timeout: 20_000, maxRetries: 1, fetch: (url, init) => globalThis.fetch(url, init) });
     clientKey = apiKey;
   }
   return client;

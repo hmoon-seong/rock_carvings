@@ -83,8 +83,12 @@ export function carveHeight(layers: CarveLayer[], opts: CarveOptions): { height:
  * Returns the height field too, for the shadow.
  */
 export function buildCarve(layers: CarveLayer[], opts: CarveOptions): { rgba: Uint8Array; height: Float32Array } {
-  const { w, h, mmPerPx } = opts;
   const { height, soft } = carveHeight(layers, opts);
+  return { rgba: heightToRgba(height, soft, opts.w, opts.h, opts.mmPerPx), height };
+}
+
+/** The RGBA8 carve layer of a height field (mm) and its soft coverage (see buildCarve). */
+export function heightToRgba(height: Float32Array, soft: Float32Array, w: number, h: number, mmPerPx: number): Uint8Array {
   const px = new Uint8Array(w * h * 4);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -97,5 +101,5 @@ export function buildCarve(layers: CarveLayer[], opts: CarveOptions): { rgba: Ui
       px[4 * k + 3] = Math.round(Math.min(1, soft[k] * 1.5) * 255);
     }
   }
-  return { rgba: px, height };
+  return px;
 }

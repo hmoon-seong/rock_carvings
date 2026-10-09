@@ -1,7 +1,7 @@
 // The carvings table through Supabase's REST API (PostgREST), with the anon key.
 // Row-level security allows anonymous select + insert only (supabase/schema.sql).
 
-import { LIMITS, type Carving, type CarvingDraft, type Rect } from "../shared/wall.ts";
+import { LIMITS, overlaps, rectOf, type Carving, type CarvingDraft, type Rect } from "../shared/wall.ts";
 import type { Env } from "./http.ts";
 
 export interface SupabaseConf {
@@ -30,7 +30,7 @@ export async function listCarvings(c: SupabaseConf, [x, y, w, h]: Rect, columns:
   if (!res.ok) throw new Error(`supabase list ${res.status}: ${await res.text()}`);
   const rows = (await res.json()) as Carving[];
   // Exact overlap test (the query only bounds the start corner).
-  return rows.filter((r) => r.x_mm + r.w_mm > x && r.y_mm + r.h_mm > y);
+  return rows.filter((r) => overlaps(rectOf(r), [x, y, w, h]));
 }
 
 export async function insertCarving(c: SupabaseConf, d: CarvingDraft): Promise<Carving> {

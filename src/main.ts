@@ -1,10 +1,16 @@
 // 암각화몬: draw on paper → carve into the scanned Bangudae wall under raking light.
 
-import { pickMotif, type Motif } from "../shared/challenge";
+import { motifById, pickMotif, type Motif } from "../shared/challenge";
+import { LIMITS, rectOf, type Carving, type CarvingDraft, type Rect } from "../shared/wall";
 import type { ScoreResult } from "../shared/score";
 import { ChallengeUI, type TimerEnd } from "./challenge/challengeUI";
 import { guessLine, requestScore } from "./challenge/score";
 import { maskBBox, silhouettePNG } from "./challenge/silhouette";
+import { checkNearSite, GEO_TEXT, geoBypassed } from "./guestbook/geo";
+import { toWallStrokes } from "./guestbook/serialize";
+import { findSpots } from "./guestbook/spot";
+import { Guestbook } from "./guestbook/store";
+import { layerResolution, WallLayer, windowCovers, windowFor, type WallLayerResult, type WallWindow } from "./guestbook/wallLayer";
 import { buildCarve } from "./carve/carve";
 import { writeShadow } from "./carve/shadow";
 import { tracingLabels } from "./carve/tracing";
@@ -13,10 +19,10 @@ import { Ink } from "./draw/ink";
 import { countStamps, rasterizeMasks, setBrushRoughness } from "./draw/strokes";
 import { setupDrawTools } from "./ui/drawTools";
 import { Lab } from "./ui/lab";
-import { SHARE_SIZES, shareCrop } from "./share/layout";
-import { ShareSheet } from "./share/shareSheet";
+import { koreanDate, SHARE_SIZES, shareCrop } from "./share/layout";
+import { clipMessage, ShareSheet } from "./share/shareSheet";
 import { LightDial } from "./ui/lightDial";
-import { toast } from "./ui/notice";
+import { dialog, toast } from "./ui/notice";
 import { paintTracing } from "./ui/tracingCanvas";
 import { attachViewGestures } from "./ui/viewGestures";
 import { Camera, fitScale, niceLength, type CameraLimits } from "./wall/camera";
@@ -28,7 +34,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const view = $<HTMLElement>("view");
 const status = $<HTMLElement>("status");
 
-type Mode = "draw" | "place" | "carve";
+type Mode = "draw" | "place" | "carve" | "wall";
 type View = "rock" | "rubbing" | "tracing";
 let mode: Mode = "draw";
 let viewMode: View = "rock";
@@ -75,6 +81,7 @@ async function main() {
     return;
   }
   const palette = PALETTE;
+  const wallLayer = new WallLayer(palette.length);
   const defaultLight = { ...renderer.light };
 
   // ---------------------------------------------------------------- layout
@@ -118,7 +125,9 @@ async function main() {
     placeTrace();
     placeFrame();
     syncZoomUI();
+    onWallCamera();
   };
+  let onWallCamera = () => {};
   const layout = () => {
     rect.h = (vh() / vw()) * rect.w;
     if (atHome) [camera.cx, camera.cy, camera.scale] = homeCamera();
@@ -145,7 +154,12 @@ async function main() {
   const placeOk = $<HTMLButtonElement>("placeOk");
   const placeMsg = $("placeMsg");
   let placementMask: PlacementMask | null = null;
-  let maskRequested = false;
+  let maskLoad: Promise<PlacementMask> | null = null;
+  const getPlacementMask = () =>
+    (maskLoad ??= loadPlacementMask(meta).then((m) => (placementMask = m)).catch((err) => {
+      maskLoad = null;
+      throw err;
+    }));
   const frameRect = (): [number, number, number, number] => [camera.cx - rect.w / 2, camera.cy - rect.h / 2, rect.w, rect.h];
   const placeFrame = () => {
     if (mode !== "place") {
@@ -166,7 +180,7 @@ async function main() {
   const zoomToggle = $<HTMLButtonElement>("zoomToggle");
   const scaleBar = $("scalebar");
   const syncZoomUI = () => {
-    zoomToggle.textContent = atHome || mode === "place" ? "전체 보기" : "내 새김";
+    zoomToggle.textContent = atHome || mode === "place" || mode === "wall" ? "전체 보기" : "내 새김";
     const len = niceLength(90 * camera.scale);
     (scaleBar.firstElementChild as HTMLElement).style.width = `${len / camera.scale}px`;
     scaleBar.lastElementChild!.textContent = len >= 1000 ? `${len / 1000} m` : `${len / 10} cm`;
@@ -195,7 +209,7 @@ async function main() {
   $("zoomIn").addEventListener("click", () => zoomBy(1.6));
   $("zoomOut").addEventListener("click", () => zoomBy(1 / 1.6));
   zoomToggle.addEventListener("click", async () => {
-    if (atHome || mode === "place") {
+    if (atHome || mode === "place" || mode === "wall") {
       atHome = false;
       await animateCamera([meta.width_mm / 2, meta.height_mm / 2, fitScale(vw(), vh(), limits())], 700);
       syncZoomUI();
@@ -268,6 +282,7 @@ async function main() {
   lab.onChange = (settings, key) => {
     renderer.setLook(settings);
     if (key && !CARVE_KEYS.includes(key)) return;
+    wallLayer.lookVersion++;
     if (!key || RASTER_KEYS.includes(key)) {
       setBrushRoughness(settings.brush_roughness);
       ink.redraw();
@@ -294,7 +309,7 @@ async function main() {
   $("dialHost").appendChild(dial.el);
   // The dial lives in the free-mode carve panel or in the challenge result panel.
   const placeDial = () => {
-    const host = $(motif ? "dialHost2" : "dialHost");
+    const host = $(mode === "wall" ? "dialHost3" : motif ? "dialHost2" : "dialHost");
     if (dial.el.parentElement !== host) host.appendChild(dial.el);
   };
   // The carving's cast shadow depends on the light: recompute it at most once per frame.
@@ -302,6 +317,7 @@ async function main() {
   let timelapseRunning = false;
   const relight = () => {
     shadowQueued = false;
+    if (mode === "wall") return relightWall();
     if (!carve || timelapseRunning) return;
     const { azimuth, elevation } = renderer.light;
     writeShadow(carve.rgba, carve.height, carve.w, carve.h, carve.mmPerPx, azimuth, elevation);
@@ -311,7 +327,7 @@ async function main() {
     renderer.light = { ...l };
     renderer.invalidate();
     if (!fromDial) dial.set(l, false);
-    if (carve && !shadowQueued) {
+    if ((carve || mode === "wall") && !shadowQueued) {
       shadowQueued = true;
       requestAnimationFrame(relight);
     }
@@ -335,6 +351,7 @@ async function main() {
       atHome = false;
       applyCamera();
     },
+    tap: (sx, sy) => wallTap(sx, sy),
   });
 
   // ---------------------------------------------------------------- views: 바위 / 탁본 / 도면
@@ -367,9 +384,9 @@ async function main() {
   const step = $("step");
   const setMode = (m: Mode) => {
     mode = m;
-    document.body.classList.remove("mode-draw", "mode-place", "mode-carve");
+    document.body.classList.remove("mode-draw", "mode-place", "mode-carve", "mode-wall");
     document.body.classList.add(`mode-${m}`);
-    step.textContent = motif ? "도전" : { draw: "그리기", place: "자리 고르기", carve: "새기기" }[m];
+    step.textContent = m === "wall" ? "모두의 벽" : motif ? "도전" : { draw: "그리기", place: "자리 고르기", carve: "새기기" }[m];
     placeDial();
   };
 
@@ -379,15 +396,9 @@ async function main() {
     if (busy) return;
     busy = true;
     placeFrom = { x: rect.x, y: rect.y };
-    if (!maskRequested) {
-      maskRequested = true;
-      loadPlacementMask(meta)
-        .then((m) => {
-          placementMask = m;
-          placeFrame();
-        })
-        .catch((err) => console.warn("placement mask failed; any spot allowed", err));
-    }
+    getPlacementMask()
+      .then(() => placeFrame())
+      .catch((err) => console.warn("placement mask failed; any spot allowed", err));
     setMode("place");
     atHome = false;
     applyCamera();
@@ -487,6 +498,7 @@ async function main() {
     carve = { masks, used, w, h, mmPerPx, rectMM, rgba: new Uint8Array(0), height: new Float32Array(0) };
     traceDirty = true;
     recarve();
+    setPosted(false);
     return carve;
   };
 
@@ -645,7 +657,7 @@ async function main() {
     mockBadge.hidden = !(r.mock || r.fallback);
     mockBadge.textContent = r.mock ? "모의 채점" : "임시 점수";
     resultButtons.forEach((b) => (b.disabled = false));
-    postRes.disabled = r.flagged || ink.strokes.length === 0;
+    postRes.disabled = r.flagged || ink.strokes.length === 0 || carvePosted;
     if (r.flagged) {
       scoreNum.textContent = "–";
       resGuess.textContent = "이 그림은 점수를 드릴 수 없어요.";
@@ -708,6 +720,359 @@ async function main() {
   };
   $("shareFree").addEventListener("click", openShare);
   $("shareRes").addEventListener("click", openShare);
+
+  // ---------------------------------------------------------------- 모두의 벽 (shared wall)
+  // Every carving is rebuilt from its strokes into one carve layer covering a window around
+  // the view, at a resolution that follows the zoom. Only carvings in the window are loaded.
+  const guestbook = new Guestbook();
+  const hl = $("hl"), wallInfo = $("wallInfo"), wallCount = $("wallCount");
+  const postOk = $<HTMLButtonElement>("postOk"), postMsg = $<HTMLInputElement>("postMsg");
+  const postButtons = [$<HTMLButtonElement>("postFree"), postRes];
+  let wallFrom: Mode = "draw";
+  let wallWin: WallWindow | null = null;
+  let wallRes: WallLayerResult | null = null;
+  let wallLoaded: Carving[] = [];
+  let wallGen = 0;
+  let wallTimer = 0;
+  let selected: Carving | null = null;
+  /** The visitor's carving at its proposed spot, while confirming 벽에 남기기. */
+  let pending: Carving | null = null;
+  let draftBase: CarvingDraft | null = null;
+  let spots: Rect[] = [];
+  let spotIdx = 0;
+  let carvePosted = false;
+  function setPosted(v: boolean) {
+    carvePosted = v;
+    for (const b of postButtons) {
+      b.textContent = v ? "벽에 남겼어요" : "벽에 남기기";
+      b.disabled = v || (b === postRes && (challengeResult?.flagged ?? false));
+    }
+  }
+
+  const relightWall = () => {
+    if (!wallRes) return;
+    const { rgba, height, w, h, mmPerPx } = wallRes;
+    writeShadow(rgba, height, w, h, mmPerPx, renderer.light.azimuth, renderer.light.elevation, mmPerPx >= 2 ? 1 : 2);
+    renderer.updateCarve(rgba);
+  };
+
+  const buildWall = async (force = false) => {
+    if (mode !== "wall") return;
+    const view = camera.rect(vw(), vh());
+    const win = windowFor(view, meta.width_mm, meta.height_mm, layerResolution(camera.scale / Math.min(window.devicePixelRatio || 1, 2)));
+    if (!force && wallWin && windowCovers(wallWin, view, win.mmPerPx)) return;
+    const gen = ++wallGen;
+    let list: Carving[];
+    try {
+      list = await guestbook.list(win.rect);
+    } catch (err) {
+      console.warn(err);
+      toast("벽을 불러오지 못했어요");
+      return;
+    }
+    if (gen !== wallGen || mode !== "wall") return;
+    if (pending) list = [...list, pending];
+    wallLoaded = list;
+    placeMarks();
+    wallWin = win;
+    wallRes = wallLayer.build(list, win, carveStyles(lab.settings));
+    renderer.setCarve(wallRes.rgba, win.w, win.h, win.rect);
+    renderer.carveAmount = 1;
+    relightWall();
+    $("wallBadge").hidden = guestbook.mode !== "local";
+  };
+
+  const placeHighlight = () => {
+    const c = pending ?? selected;
+    if (mode !== "wall" || !c) return hl.classList.remove("show");
+    const [vx, vy] = camera.rect(vw(), vh()), s = camera.scale;
+    Object.assign(hl.style, {
+      left: `${(c.x_mm - vx) / s}px`, top: `${(c.y_mm - vy) / s}px`, width: `${c.w_mm / s}px`, height: `${c.h_mm / s}px`,
+    });
+    hl.classList.add("show");
+    hl.classList.toggle("pending", c === pending);
+  };
+  // Zoomed out, carvings are a few pixels wide: faint markers show where they are.
+  const marks = $("marks");
+  const MARK_SCALE = 7; // mm per CSS px
+  const placeMarks = () => {
+    const show = mode === "wall" && camera.scale > MARK_SCALE;
+    if (!show) return void (marks.innerHTML = "");
+    const [vx, vy] = camera.rect(vw(), vh()), s = camera.scale, mine = guestbook.mine();
+    const items = wallLoaded.filter((c) => c !== pending).slice(0, 400);
+    while (marks.childElementCount > items.length) marks.lastElementChild!.remove();
+    while (marks.childElementCount < items.length) marks.appendChild(document.createElement("i"));
+    items.forEach((c, i) => {
+      const el = marks.children[i] as HTMLElement;
+      el.style.left = `${(c.x_mm + c.w_mm / 2 - vx) / s}px`;
+      el.style.top = `${(c.y_mm + c.h_mm / 2 - vy) / s}px`;
+      el.classList.toggle("mine", mine.has(c.id));
+    });
+  };
+  onWallCamera = () => {
+    if (mode !== "wall") return;
+    placeHighlight();
+    placeMarks();
+    clearTimeout(wallTimer);
+    wallTimer = window.setTimeout(() => buildWall(), 180);
+  };
+
+  const showWallInfo = () => {
+    const c = selected;
+    if (!c) {
+      wallInfo.textContent = "새김을 눌러 보세요";
+      return;
+    }
+    const parts: string[] = [];
+    if (guestbook.mine().has(c.id)) parts.push("내 새김");
+    if (c.id.startsWith("sample-")) parts.push("예시 새김");
+    else parts.push(koreanDate(new Date(c.created_at)));
+    const m = motifById(c.prompt);
+    if (m) parts.push(`도전 ${m.label}${c.score != null ? ` ${c.score}점` : ""}`);
+    wallInfo.textContent = parts.join(" · ");
+  };
+  const wallTap = (sx: number, sy: number) => {
+    if (mode !== "wall" || pending || busy) return;
+    const [mx, my] = camera.toMM(sx, sy, vw(), vh());
+    // Inside a carving's box, or (zoomed out) within 22 px of its marker.
+    const near = 22 * camera.scale;
+    const dist = (c: Carving) => Math.hypot(mx - (c.x_mm + c.w_mm / 2), my - (c.y_mm + c.h_mm / 2));
+    const hits = wallLoaded.filter(
+      (c) => (mx >= c.x_mm && my >= c.y_mm && mx <= c.x_mm + c.w_mm && my <= c.y_mm + c.h_mm) || (camera.scale > MARK_SCALE && dist(c) < near),
+    );
+    selected = hits.sort((a, b) => dist(a) - dist(b))[0] ?? null;
+    showWallInfo();
+    placeHighlight();
+  };
+  const refreshCount = () =>
+    guestbook
+      .list([0, 0, meta.width_mm, meta.height_mm], true)
+      .then((all) => (wallCount.textContent = `새김 ${all.length}개`))
+      .catch(() => (wallCount.textContent = ""));
+
+  /** Camera that shows `r` at about half the screen width. */
+  const focusOn = (r: Rect): [number, number, number] => {
+    const s = Math.max(r[2] / vw(), r[3] / vh()) * 2.2;
+    return [r[0] + r[2] / 2, r[1] + r[3] / 2, Math.min(s, fitScale(vw(), vh(), limits()))];
+  };
+
+  const enterWall = async (focus?: Rect) => {
+    if (mode !== "wall") wallFrom = mode;
+    lab.toggle(false);
+    labBtn.setAttribute("aria-expanded", "false");
+    wallHint.classList.remove("show");
+    setView("rock", false);
+    if (wallFrom === "draw") renderer.carveAmount = 0;
+    setMode("wall");
+    selected = null;
+    showWallInfo();
+    wallWin = null;
+    requestFull();
+    refreshCount();
+    atHome = false;
+    await animateCamera(focus ? focusOn(focus) : [meta.width_mm / 2, meta.height_mm / 2, fitScale(vw(), vh(), limits())], 800);
+    await buildWall(true);
+  };
+
+  const leaveWall = async () => {
+    pending = null;
+    selected = null;
+    document.body.classList.remove("posting");
+    hl.classList.remove("show");
+    marks.innerHTML = "";
+    wallWin = wallRes = null;
+    wallGen++;
+    const back = wallFrom;
+    setMode(back);
+    if (carve) {
+      renderer.setCarve(carve.rgba, carve.w, carve.h, carve.rectMM);
+      relight();
+    }
+    renderer.carveAmount = back === "carve" ? 1 : 0;
+    await goHome();
+  };
+
+  $("wallBtn").addEventListener("click", () => {
+    if (busy) return;
+    busy = true;
+    enterWall().finally(() => (busy = false));
+  });
+  $("wallBack").addEventListener("click", () => {
+    if (busy) return;
+    busy = true;
+    leaveWall().finally(() => (busy = false));
+  });
+
+  // ---- 벽에 남기기: geolocation → a free spot → confirm (message) → moderation → stored.
+  /** The current carving as a wall row: strokes cropped to the carving (+ bevel margin). */
+  const makeDraft = (): CarvingDraft | null => {
+    const c = carve!;
+    const bb = maskBBox(c.masks, c.w, c.h);
+    if (!bb) return null;
+    const k = c.mmPerPx, pad = 16;
+    const x0 = Math.max(0, bb[0] * k - pad), y0 = Math.max(0, bb[1] * k - pad);
+    const x1 = Math.min(c.rectMM[2], bb[2] * k + pad), y1 = Math.min(c.rectMM[3], bb[3] * k + pad);
+    const w = Math.max(LIMITS.minSize, x1 - x0), h = Math.max(LIMITS.minSize, y1 - y0);
+    const strokes = toWallStrokes(ink.strokes, x0, y0);
+    // Very long drawings: thin the points until they fit the row limit.
+    while (strokes.reduce((n, s) => n + s.p.length, 0) > LIMITS.maxPoints) {
+      for (const s of strokes) s.p = s.p.filter((_, i) => i % 4 < 2 || i >= s.p.length - 2);
+    }
+    if (strokes.length > LIMITS.maxStrokes) return null;
+    const r = challengeResult;
+    return {
+      x_mm: c.rectMM[0] + x0, y_mm: c.rectMM[1] + y0, w_mm: w, h_mm: h, src_w: w, src_h: h, strokes,
+      prompt: motif?.id ?? null,
+      score: motif && r && !r.flagged && !r.fallback ? r.match : null,
+    };
+  };
+
+  /** Free spots for the draft: its own spot first; smaller sizes if the wall is crowded. */
+  const findSpotsFor = async (d: CarvingDraft): Promise<Rect[]> => {
+    const [mask, all] = await Promise.all([getPlacementMask(), guestbook.list([0, 0, meta.width_mm, meta.height_mm], true)]);
+    const taken = all.map(rectOf);
+    for (const k of [1, 0.75, 0.55]) {
+      const w = d.w_mm * k, h = d.h_mm * k;
+      const found = findSpots(w, h, [d.x_mm + (d.w_mm - w) / 2, d.y_mm + (d.h_mm - h) / 2], {
+        wallW: meta.width_mm, wallH: meta.height_mm, taken, allowed: (r) => placementOK(mask, r),
+      });
+      if (found.length) return found;
+    }
+    return [];
+  };
+
+  const setPending = () => {
+    const [x, y, w, h] = spots[spotIdx];
+    pending = { ...draftBase!, x_mm: x, y_mm: y, w_mm: w, h_mm: h, id: "pending", created_at: new Date().toISOString() };
+  };
+
+  const syncPostCount = () => ($("postCount").textContent = `${[...postMsg.value].length}/40`);
+  postMsg.addEventListener("input", () => {
+    const v = clipMessage(postMsg.value);
+    if (v !== postMsg.value) postMsg.value = v;
+    syncPostCount();
+  });
+
+  const startPost = async () => {
+    if (busy || !carve || carvePosted || ink.strokes.length === 0) return;
+    if (motif && challengeResult?.flagged) return;
+    busy = true;
+    try {
+      if (!geoBypassed()) toast("위치를 확인하는 중…", 12_000);
+      const geo = await checkNearSite();
+      if (geo !== "ok") {
+        toast("", 1);
+        const go = await dialog("벽에 남길 수 없어요", GEO_TEXT[geo], [
+          { label: "닫기", value: false },
+          { label: "모두의 벽 구경", value: true, primary: true },
+        ]);
+        if (go) await enterWall();
+        return;
+      }
+      const d = makeDraft();
+      if (!d) {
+        toast("그림이 너무 복잡해서 남길 수 없어요");
+        return;
+      }
+      toast("빈자리를 찾는 중…", 4000);
+      let found: Rect[];
+      try {
+        found = await findSpotsFor(d);
+      } catch (err) {
+        console.warn(err);
+        toast("벽을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+        return;
+      }
+      toast("", 1);
+      if (!found.length) {
+        await dialog("벽이 가득 찼어요", "지금은 빈자리가 없어요.\n다음에 다시 찾아 주세요.", [{ label: "확인", value: 0, primary: true }]);
+        return;
+      }
+      draftBase = d;
+      spots = found;
+      spotIdx = 0;
+      setPending();
+      postMsg.value = share.message;
+      syncPostCount();
+      document.body.classList.add("posting");
+      await enterWall(spots[0]);
+    } finally {
+      busy = false;
+    }
+  };
+  for (const b of postButtons) b.addEventListener("click", startPost);
+  if (import.meta.env.DEV) {
+    // Test hook for the headless screen checks (not in production builds).
+    Object.assign(window, {
+      __amg: {
+        lookAt: (x: number, y: number, s: number) => {
+          [camera.cx, camera.cy, camera.scale] = [x, y, s];
+          atHome = false;
+          applyCamera();
+        },
+        cam: () => [camera.cx, camera.cy, camera.scale, vw(), vh()],
+        wall: () => wallRes && { r: wallRes.mmPerPx, w: wallRes.w, h: wallRes.h, rect: wallRes.rect, n: wallLoaded.length, minH: wallRes.height.reduce((a, b) => Math.min(a, b), 0) },
+      },
+    });
+  }
+
+  $("postOther").addEventListener("click", async () => {
+    if (busy || !pending) return;
+    if (spots.length < 2) return toast("다른 빈자리가 없어요");
+    busy = true;
+    spotIdx = (spotIdx + 1) % spots.length;
+    setPending();
+    placeHighlight();
+    await animateCamera(focusOn(spots[spotIdx]), 600);
+    await buildWall(true);
+    busy = false;
+  });
+  $("postCancel").addEventListener("click", () => {
+    if (busy) return;
+    busy = true;
+    leaveWall().finally(() => (busy = false));
+  });
+
+  const REJECT: Record<string, [string, string]> = {
+    flagged: ["바위에 새길 수 없는 그림이에요", "모두가 함께 보는 벽이라 이 그림은 남길 수 없어요.\n다른 그림으로 다시 도전해 볼까요?"],
+    message: ["메시지를 고쳐 주세요", "메시지에 벽에 남기기 어려운 말이 있어요.\n고치거나 비워 두고 다시 눌러 주세요."],
+    limited: ["잠시 후에 다시 남겨 주세요", "짧은 시간에 너무 많이 남겼어요.\n조금 쉬었다가 다시 시도해 주세요."],
+    invalid: ["남길 수 없어요", "그림을 저장하지 못했어요. 다시 그려 볼까요?"],
+    error: ["지금은 남길 수 없어요", "연결이 불안정해요. 잠시 후 다시 시도해 주세요."],
+  };
+  postOk.addEventListener("click", async () => {
+    if (busy || !pending || !carve) return;
+    busy = true;
+    postOk.textContent = "확인하는 중…";
+    postOk.disabled = true;
+    const message = clipMessage(postMsg.value.trim());
+    share.setMessage(message);
+    const { id: _id, created_at: _at, ...draft } = pending;
+    const png = silhouettePNG(carve.masks, carve.w, carve.h) ?? "";
+    const res = await guestbook.post(draft, png, message);
+    postOk.textContent = "새기기";
+    postOk.disabled = false;
+    if (res.ok) {
+      pending = null;
+      selected = res.carving;
+      document.body.classList.remove("posting");
+      setPosted(true);
+      await buildWall(true);
+      showWallInfo();
+      placeHighlight();
+      refreshCount();
+      toast("모두의 벽에 새겼어요!");
+    } else {
+      const [title, text] = REJECT[res.reason] ?? REJECT.error;
+      await dialog(title, text, [{ label: "확인", value: 0, primary: true }]);
+      if (res.reason === "flagged") {
+        setPosted(false);
+        postButtons.forEach((b) => (b.disabled = true));
+        await leaveWall();
+      }
+    }
+    busy = false;
+  });
 }
 
 function fail(err: unknown) {

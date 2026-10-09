@@ -21,6 +21,9 @@
           <button data-mode="challenge" role="radio">도전 모드</button>
         </div>
         <button id="placeBtn" class="float-btn">자리 고르기</button>
+        <button id="wallBtn" class="float-btn float-left">모두의 벽</button>
+        <div id="marks" aria-hidden="true"></div>
+        <div id="hl" aria-hidden="true"></div>
         <div id="card" class="card" role="dialog" aria-label="제시어">
           <small>제시어</small>
           <strong id="cardLabel"></strong>
@@ -117,6 +120,30 @@
           <div class="carve-actions">
             <button id="shareFree" class="pill">공유하기</button>
             <button id="postFree" class="primary">벽에 남기기</button>
+          </div>
+        </div>
+        <div class="tools wall-only">
+          <div class="dial-col">
+            <div id="dialHost3"></div>
+            <small>측광</small>
+          </div>
+          <div class="col">
+            <p class="wall-title">모두의 벽 <small id="wallCount"></small> <span id="wallBadge" class="badge" hidden>이 기기에만 저장</span></p>
+            <p id="wallInfo" class="wall-info">새김을 눌러 보세요</p>
+          </div>
+          <button id="wallBack" class="pill">돌아가기</button>
+        </div>
+        <div class="tools confirm-only">
+          <p class="confirm-title">여기에 새길까요?<small>벽에는 그림만 남아요. 메시지는 확인용으로만 쓰이고 저장되지 않아요.</small></p>
+          <label class="share-msg">
+            <input id="postMsg" type="text" enterkeyhint="done" placeholder="남기고 싶은 말 (선택)" autocomplete="off" />
+            <small id="postCount">0/40</small>
+          </label>
+          <div class="row">
+            <button id="postCancel" class="text">취소</button>
+            <span class="grow"></span>
+            <button id="postOther" class="pill">다른 자리</button>
+            <button id="postOk" class="primary">새기기</button>
           </div>
         </div>
       </footer>

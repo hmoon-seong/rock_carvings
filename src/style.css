@@ -63,7 +63,7 @@ html, body {
 }
 #hint { top: 42%; font-size: 15px; }
 #hint small { font-size: 12px; opacity: 0.8; }
-#hint.hidden, .mode-carve #hint, .mode-place #hint { opacity: 0; }
+#hint.hidden, .mode-carve #hint, .mode-place #hint, .mode-wall #hint { opacity: 0; }
 #wallhint { bottom: 36px; font-size: 12px; color: #d9cfc4; text-shadow: 0 1px 3px #000; opacity: 0; }
 .mode-carve.view-rock #wallhint.show { opacity: 1; }
 
@@ -85,7 +85,10 @@ html, body {
 .col { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .mode-draw .carve-only, .mode-draw .place-only, .mode-draw .result-only,
 .mode-carve .draw-only, .mode-carve .place-only,
-.mode-place .draw-only, .mode-place .carve-only, .mode-place .result-only { display: none !important; }
+.mode-place .draw-only, .mode-place .carve-only, .mode-place .result-only,
+.mode-wall .draw-only, .mode-wall .place-only, .mode-wall .carve-only, .mode-wall .result-only,
+body:not(.mode-wall) .wall-only, body:not(.mode-wall) .confirm-only,
+.mode-wall.posting .wall-only, .mode-wall:not(.posting) .confirm-only { display: none !important; }
 /* challenge: the result panel replaces the free-mode carve panel */
 body:not(.challenge) .result-only, .challenge .carve-only { display: none !important; }
 .grow { flex: 1; }
@@ -326,3 +329,34 @@ button.pill:active { background: #ddd4c8; }
   border: 1px solid var(--line); background: #fff; color: var(--text);
 }
 .share-msg small { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 11px; }
+
+/* ---------------------------------------------------------------- 모두의 벽 */
+.float-left { right: auto; left: 12px; }
+body:not(.mode-draw) #wallBtn, .ch-running #wallBtn, .challenge #wallBtn { display: none; }
+.mode-wall #paper, .mode-wall #ink, .mode-wall #trace { visibility: hidden; }
+.mode-wall #brand { color: #eee6dc; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+.mode-wall #brand span { color: #b8ada2; }
+#hl {
+  position: absolute; display: none; pointer-events: none; border-radius: 4px;
+  outline: 2px solid rgba(255, 236, 200, 0.95); outline-offset: 2px;
+  box-shadow: 0 0 0 9999px rgba(10, 8, 6, 0.22), 0 0 24px rgba(255, 220, 170, 0.35);
+  transition: opacity 0.2s;
+}
+#hl.show { display: block; }
+#hl.pending { outline-style: dashed; animation: breathe 1.6s ease-in-out infinite; }
+@keyframes breathe { 50% { outline-color: rgba(255, 236, 200, 0.45); } }
+.wall-only { align-items: center; }
+.wall-title { margin: 0; font-weight: 600; font-size: 14px; }
+.wall-title small { font-weight: 400; color: var(--muted); margin-left: 4px; }
+.wall-info { margin: 2px 0 0; font-size: 12px; color: var(--muted); min-height: 2.8em; word-break: keep-all; }
+.confirm-only { flex-direction: column; align-items: stretch; gap: 8px; }
+.confirm-title { margin: 0; font-weight: 600; font-size: 14px; display: flex; flex-direction: column; gap: 2px; }
+.confirm-title small { font-weight: 400; font-size: 11px; color: var(--muted); word-break: keep-all; }
+.posting .zoom-toggle { display: none; }
+#marks { position: absolute; inset: 0; pointer-events: none; display: none; }
+.mode-wall #marks { display: block; }
+#marks i {
+  position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
+  background: rgba(255, 236, 205, 0.85); box-shadow: 0 0 0 3px rgba(255, 236, 205, 0.22), 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+#marks i.mine { background: #f0a96d; box-shadow: 0 0 0 3px rgba(240, 169, 109, 0.3), 0 1px 3px rgba(0, 0, 0, 0.5); }

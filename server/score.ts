@@ -1,10 +1,10 @@
 // POST /api/score  { image: base64 PNG (the flat silhouette), prompt?: motif id }
 //   → ScoreResult. Never fails the UI: errors give the neutral result,
-//     no ANTHROPIC_API_KEY gives the deterministic mock result.
+//     no DASHSCOPE_API_KEY gives the deterministic mock result.
 
 import { motifById } from "../shared/challenge.ts";
 import { mockScore, NEUTRAL } from "../shared/score.ts";
-import { scoreDrawing } from "./claude.ts";
+import { qwenConfig, scoreDrawing } from "./qwen.ts";
 import { clientKey, json, pngBase64, readJson, type Env } from "./http.ts";
 import { allow, RateLimiter } from "./rateLimit.ts";
 
@@ -19,10 +19,10 @@ export async function handleScore(req: Request, env: Env, ip?: string): Promise<
   const prompt = motifById(body.prompt)?.id ?? null;
 
   if (!allow(clientKey(req, ip), perMinute, perHour)) return json({ ...NEUTRAL, limited: true }, 429);
-  const key = env.ANTHROPIC_API_KEY;
-  if (!key) return json(mockScore(png, prompt));
+  const ai = qwenConfig(env);
+  if (!ai) return json(mockScore(png, prompt));
   try {
-    return json(await scoreDrawing(key, png, prompt));
+    return json(await scoreDrawing(ai, png, prompt));
   } catch (err) {
     console.error("score failed", err);
     return json(NEUTRAL);

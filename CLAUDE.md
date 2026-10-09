@@ -76,7 +76,7 @@ Inspired by Google's Quick, Draw!.
 
 ### Scoring proxy
 
-- One serverless endpoint. Calls a small, fast Claude vision model (e.g. Claude Haiku 4.5). Check current Anthropic API docs for the exact model string and image input format.
+- One serverless endpoint. Calls a small, fast Qwen vision model through Alibaba Cloud DashScope (Model Studio), using its OpenAI-compatible chat API with plain `fetch` (`server/qwen.ts`). Default model `qwen3-vl-flash`. Env vars: `DASHSCOPE_API_KEY`, plus optional `DASHSCOPE_BASE_URL` (default: the international endpoint) and `QWEN_MODEL`. Without a key, the proxy returns mock scores and moderates messages with a word list only.
 - Ask for JSON only:
   ```json
   { "match": 0-100, "guess": "short Korean label", "comment": "one playful Korean sentence", "flagged": false }

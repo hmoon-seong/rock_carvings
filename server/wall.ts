@@ -9,7 +9,7 @@
 
 import { mockTextFlagged, MESSAGE_MAX } from "../shared/moderation.ts";
 import { validateDraft, type CarvingDraft, type Rect } from "../shared/wall.ts";
-import { moderatePost, type Moderation } from "./claude.ts";
+import { moderatePost, qwenConfig, type Moderation } from "./qwen.ts";
 import { clientKey, json, pngBase64, readJson, type Env } from "./http.ts";
 import { allow, RateLimiter } from "./rateLimit.ts";
 import { ALL_COLUMNS, insertCarving, listCarvings, RECT_COLUMNS, supabaseConf } from "./supabase.ts";
@@ -48,9 +48,10 @@ export async function handleWall(req: Request, env: Env, ip?: string): Promise<R
   // Moderation. Without an API key only the message gets the small word list; if the AI
   // check itself fails, nothing is stored (fail closed: this wall is public).
   let mod: Moderation = { flagged: false, message_flagged: mockTextFlagged(message) };
-  if (env.ANTHROPIC_API_KEY) {
+  const ai = qwenConfig(env);
+  if (ai) {
     try {
-      mod = await moderatePost(env.ANTHROPIC_API_KEY, png, message);
+      mod = await moderatePost(ai, png, message);
       mod.message_flagged ||= mockTextFlagged(message);
     } catch (err) {
       console.error("moderation failed", err);
@@ -60,7 +61,7 @@ export async function handleWall(req: Request, env: Env, ip?: string): Promise<R
   if (mod.flagged) return json({ ok: false, reason: "flagged" });
   if (mod.message_flagged) return json({ ok: false, reason: "message" });
 
-  if (!db) return json({ ok: true, mode: "mock", moderated: Boolean(env.ANTHROPIC_API_KEY) });
+  if (!db) return json({ ok: true, mode: "mock", moderated: Boolean(ai) });
   try {
     const carving = await insertCarving(db, body.draft!);
     return json({ ok: true, mode: "supabase", carving });

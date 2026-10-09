@@ -615,10 +615,21 @@ async function main() {
     syncModeSeg();
     syncDraw();
   };
-  modeSeg.addEventListener("click", (e) => {
+  modeSeg.addEventListener("click", async (e) => {
     const want = (e.target as HTMLElement).dataset.mode;
     if (busy || mode !== "draw" || !want) return;
-    if (want === "challenge" && !motif) openCard(pickMotif());
+    if (want === "challenge" && !motif) {
+      if (ink.strokes.length > 0) {
+        busy = true;
+        const go = await dialog("도전 모드로 갈까요?", "도전은 빈 종이에서 시작해요.\n지금 그리던 그림은 지워져요.", [
+          { label: "계속 그리기", value: false },
+          { label: "도전하기", value: true, primary: true },
+        ]);
+        busy = false;
+        if (!go) return;
+      }
+      openCard(pickMotif());
+    }
     if (want === "free" && motif) quitChallenge();
   });
   $("cardSwap").addEventListener("click", () => motif && openCard(pickMotif(motif.id)));

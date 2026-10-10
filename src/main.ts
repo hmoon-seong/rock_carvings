@@ -521,7 +521,6 @@ async function main() {
 
   // 완성: the drawing is already carved; show it with the light, views and sharing.
   const presentCarve = async () => {
-    closeLab();
     setView("rock", false);
     setMode("carve");
     zoomedOut = false;
@@ -547,7 +546,6 @@ async function main() {
 
   // Back to drawing on the same rock (the carving stays).
   const backToDraw = async () => {
-    closeLab();
     setView("rock");
     setMode("draw");
     await nextFrame();
@@ -845,7 +843,6 @@ async function main() {
       wallFrom = mode;
       wallCam = [camera.cx, camera.cy, camera.scale];
     }
-    closeLab();
     wallHint.classList.remove("show");
     setView("rock", false);
     setMode("wall");

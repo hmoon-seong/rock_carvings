@@ -334,6 +334,7 @@ async function main() {
       labTimer = 0;
       live.rebuild(ink.strokes, styles());
       carveChanged();
+      if (mode === "wall") buildWall(true);
     }, 120);
   };
   lab.extra = () => ({ azimuth_deg: renderer.light.azimuth, elevation_deg: renderer.light.elevation });
@@ -346,10 +347,10 @@ async function main() {
 
   // ---------------------------------------------------------------- light
   const dial = new LightDial(renderer.light);
-  $("dialHost").appendChild(dial.el);
-  // The dial lives in the free-mode carve panel or in the challenge result panel.
+  $("dialHost0").appendChild(dial.el);
+  // The dial moves with the panel: drawing, the free-mode carve panel, the challenge result, the wall.
   const placeDial = () => {
-    const host = $(mode === "wall" ? "dialHost3" : motif ? "dialHost2" : "dialHost");
+    const host = $(mode === "draw" ? "dialHost0" : mode === "wall" ? "dialHost3" : motif ? "dialHost2" : "dialHost");
     if (dial.el.parentElement !== host) host.appendChild(dial.el);
   };
   // The carving's cast shadow depends on the light: recompute it at most once per frame.

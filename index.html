@@ -47,11 +47,17 @@
           <button id="zoomToggle" class="zoom-toggle">전체 보기</button>
         </div>
         <div id="scalebar" aria-hidden="true"><i></i><span></span></div>
+        <button id="labBtn" class="float-btn lab-btn" aria-expanded="false">실험실</button>
         <div id="lab" class="sheet" hidden></div>
         <div id="status">바위를 불러오는 중…</div>
       </main>
       <footer id="panel">
         <div class="tools draw-only">
+          <div class="dial-col">
+            <div id="dialHost0"></div>
+            <small>측광</small>
+          </div>
+          <div class="col">
           <div class="row">
             <div class="chips" id="chips" role="radiogroup" aria-label="색"></div>
             <span class="grow"></span>
@@ -66,6 +72,7 @@
             <span class="grow"></span>
             <button id="carve" class="primary">완성</button>
             <button id="done" class="primary">다 그렸어요</button>
+          </div>
           </div>
         </div>
         <div class="tools result-only">
@@ -101,7 +108,6 @@
               <button data-view="tracing" role="radio">도면</button>
             </div>
             <div class="row">
-              <button id="labBtn" class="text" aria-expanded="false">실험실</button>
               <button id="replay" class="text">타임랩스</button>
               <span class="grow"></span>
               <button id="redraw" class="text">더 그리기</button>

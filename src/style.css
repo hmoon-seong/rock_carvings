@@ -73,7 +73,16 @@ html, body {
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
 }
 .tools { display: flex; align-items: center; gap: 10px; min-height: 64px; }
-.draw-only { flex-direction: column; align-items: stretch; gap: 4px; }
+.draw-only .col { gap: 4px; }
+/* next to the dial the size slider takes whatever width the chips leave */
+.draw-only .chips { flex: none; gap: 2px; }
+.draw-only .chip { white-space: nowrap; padding: 4px 3px; }
+.draw-only .size { flex: 1; min-width: 0; justify-content: flex-end; gap: 4px; }
+.draw-only .size input { flex: 1; min-width: 40px; width: auto; max-width: 96px; }
+.draw-only .dial svg { width: 56px; height: 56px; }
+.draw-only .row button { white-space: nowrap; }
+.draw-only .row button.text { padding: 9px 7px; }
+.draw-only .row button.primary { padding: 11px 16px; }
 .row { display: flex; align-items: center; gap: 6px; }
 .col { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .mode-draw .carve-only, .mode-draw .result-only,
@@ -137,7 +146,10 @@ input[type="range"] { accent-color: var(--text); }
 .dial-col { display: flex; flex-direction: column; align-items: center; gap: 0; }
 .dial-col small { font-size: 11px; color: var(--muted); margin-top: -2px; transition: opacity 0.3s; }
 body:not(.view-rock) .dial-col { opacity: 0.35; pointer-events: none; }
-#labBtn[aria-expanded="true"] { color: var(--text); }
+/* 실험실: a floating toggle on every screen; the sheet opens just above it */
+.lab-btn { left: auto; right: 12px; }
+#labBtn[aria-expanded="true"] { background: var(--text); color: var(--panel); border-color: var(--text); }
+.timelapse #labBtn { opacity: 0.4; pointer-events: none; }
 
 /* 실험실 sheet */
 .sheet {
@@ -145,7 +157,7 @@ body:not(.view-rock) .dial-col { opacity: 0.35; pointer-events: none; }
   background: rgba(243, 239, 233, 0.94); border-radius: 14px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
   display: grid; gap: 4px; backdrop-filter: blur(6px);
   max-height: 60%; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
-  padding-top: 8px; gap: 2px;
+  padding-top: 8px; gap: 2px; bottom: 52px;
 }
 .lab-tabs { display: flex; gap: 2px; margin-bottom: 4px; }
 .lab-tabs button { padding: 5px 12px; font-size: 12px; color: var(--muted); }
@@ -183,7 +195,7 @@ body:not(.view-rock) .dial-col { opacity: 0.35; pointer-events: none; }
   font-size: 12px; padding: 7px 12px; color: var(--text);
   background: rgba(243, 239, 233, 0.9); border: 1px solid var(--line); border-radius: 999px;
 }
-body:not(.mode-draw) .float-btn { display: none; }
+body:not(.mode-draw) .float-btn:not(.lab-btn) { display: none; }
 
 /* timelapse */
 #progress {

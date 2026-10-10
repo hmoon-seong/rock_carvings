@@ -62,7 +62,7 @@ The app builds this at runtime from the user's drawing (a mask), exactly as the 
 4. **Cast shadow** (blue channel, 0 = lit, 1 = shadow): recomputed on the CPU whenever the light moves (`src/carve/shadow.ts`, a linear-time height-field sweep at 2 mm/px). The shader multiplies the diffuse term by `1 - shadow`. This is what makes a carving read as cut *in*: at el 12° a 12 mm cut throws a ~56 mm shadow across its floor. Without it, the bevel alone reads as a raised plate.
 5. Albedo inside the carving: `albedo *= 1 + fresh_stone_lightening * carveAlpha`.
 
-Bake-time defaults (`metadata.carving`): depth **12 mm**, bevel σ **3.8 mm**, peck roughness **0.79**, drawing width **700 mm**, lightening **0.38**. The app's current defaults are in `src/look.json` (picked in the 실험실): depth **6.5 mm**, bevel σ **4.5 mm**, peck roughness **0.18**, lightening **0.66**.
+Bake-time defaults (`metadata.carving`): depth **12 mm**, bevel σ **3.8 mm**, peck roughness **0.79**, drawing width **700 mm**, lightening **0.38**. The app's current defaults are in `src/look.json` (picked in the 실험실): depth **11.5 mm**, bevel σ **3.1 mm**, peck roughness **0.52**, and the app darkens the carving instead of lightening it (`albedo *= 1 − carve_darkening * carveAlpha`, **0.35**).
 
 Lessons learned:
 - Carvings need **sloped walls** (a bevel of a few mm). Hairline edges vanish when zoomed out.

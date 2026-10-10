@@ -22,7 +22,7 @@ uniform float uSun, uAmbient, uExposure;
 uniform vec4 uCarveRect;          // x, y, w, h in mm
 // uCarve: rg = carve normal xy, b = cast shadow, a = soft mask
 uniform float uCarveAmount;       // 0 = uncarved, 1 = full depth
-uniform float uLightening;
+uniform float uDarkening;         // carved stone is darker than the weathered face
 uniform float uRubbing;           // 0 = lit rock, 1 = 탁본 (rubbing on paper)
 uniform vec3 uPaper, uInkCol;     // sRGB
 
@@ -50,7 +50,7 @@ void main() {
     carveShadow = c.b * uCarveAmount;         // cast shadow of the cut, per light (see carve/shadow.ts)
   }
 
-  vec3 albedo = toLin(a.rgb) * (1.0 + uLightening * carved);
+  vec3 albedo = toLin(a.rgb) * (1.0 - uDarkening * carved);
   float diffuse = max(dot(n, uL), 0.0) * (1.0 - carveShadow);
   vec3 ambient = mix(uGroundCol, uSkyCol, n.y * 0.5 + 0.5) * a.a * uAmbient;
   vec3 color = albedo * (uSunCol * uSun * diffuse + ambient) * uExposure;

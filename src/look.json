@@ -1,15 +1,15 @@
 {
- "brush_roughness": 1,
- "depth_mm": 6.5,
- "bevel_sigma_mm": 4.5,
- "peck_roughness": 0.18,
+ "brush_roughness": 2.15,
+ "depth_mm": 11.5,
+ "bevel_sigma_mm": 3.1,
+ "peck_roughness": 0.52,
  "purple_depth_ratio": 0.39,
- "fresh_stone_lightening": 0.66,
- "sun_intensity": 3.53,
- "sun_warmth": 0.54,
+ "carve_darkening": 0.35,
+ "sun_intensity": 2.52,
+ "sun_warmth": 0.61,
  "ambient_intensity": 0.05,
  "exposure": 1.17,
- "detail_strength": 0.3,
+ "detail_strength": 0.24,
  "azimuth_deg": 36,
  "elevation_deg": 12
 }

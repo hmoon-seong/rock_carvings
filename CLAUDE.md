@@ -30,8 +30,8 @@ The algorithm is already prototyped and verified. See `WALL_ASSETS.md` → "User
 
 - Drawing pixels become a mask. A soft bevel (gaussian, σ ≈ 3.8 mm) gives sloped walls.
 - Height = −depth (≈ 12 mm), plus pecked craters inside the mask (pecking, the 면새김 look).
-- The height turns into a carve normal layer (`nCarve`), blended onto the wall's normals in the shader, plus slight fresh-stone lightening.
-- App defaults (picked in the app's 실험실, 2026-09-27) are in `src/look.json`: depth 6.5 mm, bevel 4.5 mm, peck roughness 0.18, purple depth ×0.39, lightening 0.66, plus the light (sun 3.53, warmth 0.54, shade 0.05, exposure 1.17, grain 0.3, az 36°, el 12°). Paste a "설정 복사" JSON there to change them. `metadata.json` → `carving` keeps the bake-time values; drawing width 700 mm still comes from there.
+- The height turns into a carve normal layer (`nCarve`), blended onto the wall's normals in the shader, plus a darkening of the carved stone (`carve_darkening`).
+- App defaults (2026-10-10) are in `src/look.json`: brush roughness 2.15, depth 11.5 mm, bevel 3.1 mm, peck roughness 0.52, purple depth ×0.39, carve darkening 0.35, plus the light (sun 2.52, warmth 0.61, shade 0.05, exposure 1.17, grain 0.24, az 36°, el 12°). Paste a "설정 복사" JSON there to change them. `metadata.json` → `carving` keeps the bake-time values; drawing width 700 mm still comes from there.
 - Carvings need sloped walls. Hairline edges vanish when zoomed out.
 - Colors → carving styles: TBD. The reference drawings use two colors: brown (the main figures) and purple (a second group, prototyped as shallower). Mapping each palette color to a depth or style is a natural option. Propose it before building.
 

@@ -59,7 +59,7 @@ export class WallRenderer {
     this.invalidate();
   }
 
-  /** Shading from the lab sliders (sun, light color, shade, exposure, grain, lightening). */
+  /** Shading from the lab sliders (sun, light color, shade, exposure, grain, darkening). */
   setLook(look: LabSettings) {
     const { gl, u } = this;
     gl.uniform3fv(u.uSunCol, sunColor(this.meta.lighting.sun_color, look.sun_warmth));
@@ -67,7 +67,7 @@ export class WallRenderer {
     gl.uniform1f(u.uAmbient, look.ambient_intensity);
     gl.uniform1f(u.uExposure, look.exposure);
     gl.uniform1f(u.uDetailStrength, look.detail_strength);
-    gl.uniform1f(u.uLightening, look.fresh_stone_lightening);
+    gl.uniform1f(u.uDarkening, look.carve_darkening);
     this.invalidate();
   }
 

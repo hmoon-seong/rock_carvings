@@ -49,7 +49,8 @@ export interface LabSettings extends CarveStyle {
   /** 붓 거칠기: 0 = even round groove, 1 = default pecked brush */
   brush_roughness: number;
   purple_depth_ratio: number;
-  fresh_stone_lightening: number;
+  /** 새김 어둡기: albedo inside the carving is multiplied by (1 − this) */
+  carve_darkening: number;
   sun_intensity: number;
   /** −1 = cool (bluish), 0 = metadata sun_color, +1 = warm (low sun) */
   sun_warmth: number;

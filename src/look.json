@@ -4,7 +4,7 @@
  "bevel_sigma_mm": 3.1,
  "peck_roughness": 0.52,
  "purple_depth_ratio": 0.39,
- "carve_darkening": 0.35,
+ "carve_darkening": 0.6,
  "sun_intensity": 2.52,
  "sun_warmth": 0.61,
  "ambient_intensity": 0.05,

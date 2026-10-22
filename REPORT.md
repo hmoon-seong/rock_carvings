@@ -127,7 +127,7 @@ npm run preview        # 빌드 결과 확인 (/api/* 포함)
 | 항목 | 결정 | 이유와 메모 |
 |---|---|---|
 | 호스팅 | **Netlify** (정적 `dist/` + Functions v2) | 함수가 웹 표준 `Request → Response`라서 Vite 설정 없이 `netlify.toml` 몇 줄로 끝납니다. 같은 핸들러를 Vite dev/preview 서버에도 붙여서(`vite.config.ts`) 로컬에서는 Netlify CLI가 필요 없습니다. 서버 코드는 `server/`, 함수 래퍼는 `netlify/functions/`에 있습니다. |
-| AI 호출 (Qwen) | Alibaba Cloud DashScope의 OpenAI 호환 API(`/compatible-mode/v1/chat/completions`)를 서버에서 `fetch`로 직접 호출. 기본 모델 `qwen3-vl-flash`, `max_tokens 500` | SDK 없이 fetch만 씁니다. 이미지는 `{type:"image_url", image_url:{url:"data:image/png;base64,…"}}` 형식으로 보냅니다. `DASHSCOPE_BASE_URL`(기본: 국제 엔드포인트)과 `QWEN_MODEL`로 바꿀 수 있습니다. 응답은 JSON만 받고, 코드 펜스를 벗긴 뒤 값을 검증·클램프합니다. 키는 클라이언트 번들에 들어가지 않습니다. |
+| AI 호출 (Qwen) | Alibaba Cloud DashScope의 OpenAI 호환 API(`/compatible-mode/v1/chat/completions`)를 서버에서 `fetch`로 직접 호출. 기본 모델 `qwen3-vl-plus`, `max_tokens 500` | SDK 없이 fetch만 씁니다. 이미지는 `{type:"image_url", image_url:{url:"data:image/png;base64,…"}}` 형식으로 보냅니다. `DASHSCOPE_BASE_URL`(기본: 국제 엔드포인트)과 `QWEN_MODEL`로 바꿀 수 있습니다. 응답은 JSON만 받고, 코드 펜스를 벗긴 뒤 값을 검증·클램프합니다. 키는 클라이언트 번들에 들어가지 않습니다. |
 | 채점용 이미지 | 탁본 마스크: 밝은 종이 위 어두운 실루엣, 그림 둘레로 크롭, 긴 변 384 px 이하 | 보통 10–20 KB입니다. |
 | 서버 검사 실패 시 | **채점**: 실패하면 중립 결과를 줍니다(UI를 깨지 않음). **벽 게시**: 검사가 실패하면 저장하지 않습니다(fail closed). | 벽은 모두가 보는 곳이라 안전한 쪽을 택했습니다. |
 | 요청 제한 (IP별, 메모리) | 채점 6회/분·60회/시간, 벽 읽기 120회/분, 벽 게시 3회/10분·20회/일 | 함수 인스턴스마다 따로 세는 최선 노력 방식입니다. 엄격하게 하려면 공유 저장소가 필요합니다. |

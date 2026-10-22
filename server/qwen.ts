@@ -9,7 +9,7 @@ import type { Env } from "./http.ts";
 /** International endpoint by default; set DASHSCOPE_BASE_URL for the mainland China one
  *  (https://dashscope.aliyuncs.com/compatible-mode/v1). */
 export const BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
-export const MODEL = "qwen3-vl-flash";
+export const MODEL = "qwen3-vl-plus";
 
 export interface QwenConfig {
   apiKey: string;

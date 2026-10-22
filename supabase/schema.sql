@@ -17,8 +17,13 @@ create table if not exists public.carvings (
   strokes     jsonb not null check (jsonb_typeof(strokes) = 'array' and pg_column_size(strokes) < 400000),
   -- challenge mode (null in free mode)
   prompt      text check (prompt is null or char_length(prompt) <= 40),
-  score       smallint check (score is null or score between 0 and 100)
+  score       smallint check (score is null or score between 0 and 100),
+  -- 이어 그리기 (relay game): the chain's drawings in a row; number of players (null otherwise)
+  relay       smallint check (relay is null or relay between 2 and 8)
 );
+
+-- For a table created before 이어 그리기:
+alter table public.carvings add column if not exists relay smallint check (relay is null or relay between 2 and 8);
 
 create index if not exists carvings_pos on public.carvings (x_mm, y_mm);
 create index if not exists carvings_created on public.carvings (created_at desc);

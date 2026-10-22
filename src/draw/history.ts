@@ -26,6 +26,12 @@ export class StrokeHistory {
     this.list = [];
   }
 
+  /** These strokes and no undo (someone else's drawing, shown in 이어 그리기). */
+  load(list: readonly Stroke[]) {
+    this.list = [...list];
+    this.past = [];
+  }
+
   /** Empty drawing and no undo (a new challenge starts from a blank paper). */
   reset() {
     this.list = [];

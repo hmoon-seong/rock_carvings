@@ -5,17 +5,19 @@ import look from "./look.json";
 describe("lab settings", () => {
   it("takes the defaults from look.json (the format 설정 복사 copies)", () => {
     const lab = defaultLab();
-    expect(lab).toMatchObject({ depth_mm: 6.5, bevel_sigma_mm: 4.5, peck_roughness: 0.18, sun_warmth: 0.54, exposure: 1.17 });
+    const { depth_mm, bevel_sigma_mm, peck_roughness, sun_warmth, exposure } = look;
+    expect(lab).toMatchObject({ depth_mm, bevel_sigma_mm, peck_roughness, sun_warmth, exposure });
     expect(lab).not.toHaveProperty("azimuth_deg");
     expect(DEFAULT_LIGHT).toEqual({ azimuth: look.azimuth_deg, elevation: look.elevation_deg });
   });
 
   it("derives purple from brown: own depth ratio, fixed bevel and peck ratios", () => {
     const [brown, purple] = carveStyles(defaultLab());
-    expect(brown).toEqual({ depth_mm: 6.5, bevel_sigma_mm: 4.5, peck_roughness: 0.18 });
-    expect(purple.depth_mm).toBeCloseTo(6.5 * 0.39);
-    expect(purple.bevel_sigma_mm).toBeCloseTo(4.5 * (3.0 / 3.8));
-    expect(purple.peck_roughness).toBeCloseTo(0.18 * (0.5 / 0.79));
+    const { depth_mm, bevel_sigma_mm, peck_roughness } = look;
+    expect(brown).toEqual({ depth_mm, bevel_sigma_mm, peck_roughness });
+    expect(purple.depth_mm).toBeCloseTo(depth_mm * look.purple_depth_ratio);
+    expect(purple.bevel_sigma_mm).toBeCloseTo(bevel_sigma_mm * (3.0 / 3.8));
+    expect(purple.peck_roughness).toBeCloseTo(peck_roughness * (0.5 / 0.79));
   });
 });
 

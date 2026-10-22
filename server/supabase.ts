@@ -17,7 +17,7 @@ export function supabaseConf(env: Env): SupabaseConf | null {
 const headers = (c: SupabaseConf) => ({ apikey: c.key, authorization: `Bearer ${c.key}`, "content-type": "application/json" });
 
 export const RECT_COLUMNS = "id,x_mm,y_mm,w_mm,h_mm";
-export const ALL_COLUMNS = "id,created_at,x_mm,y_mm,w_mm,h_mm,src_w,src_h,strokes,prompt,score";
+export const ALL_COLUMNS = "id,created_at,x_mm,y_mm,w_mm,h_mm,src_w,src_h,strokes,prompt,score,relay";
 
 /** Carvings overlapping the rectangle (newest first). */
 export async function listCarvings(c: SupabaseConf, [x, y, w, h]: Rect, columns: string, limit: number): Promise<Carving[]> {
@@ -36,7 +36,7 @@ export async function listCarvings(c: SupabaseConf, [x, y, w, h]: Rect, columns:
 export async function insertCarving(c: SupabaseConf, d: CarvingDraft): Promise<Carving> {
   const row = {
     x_mm: d.x_mm, y_mm: d.y_mm, w_mm: d.w_mm, h_mm: d.h_mm, src_w: d.src_w, src_h: d.src_h,
-    strokes: d.strokes, prompt: d.prompt ?? null, score: d.score ?? null,
+    strokes: d.strokes, prompt: d.prompt ?? null, score: d.score ?? null, relay: d.relay ?? null,
   };
   const res = await fetch(`${c.url}/rest/v1/carvings?select=${ALL_COLUMNS}`, {
     method: "POST",

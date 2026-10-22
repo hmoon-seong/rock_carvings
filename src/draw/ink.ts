@@ -68,6 +68,12 @@ export class Ink {
     this.edit(() => this.history.reset());
   }
 
+  /** Replaces the drawing with `strokes` (no undo), carving them. */
+  load(strokes: readonly Stroke[]) {
+    this.active = null;
+    this.edit(() => this.history.load(strokes));
+  }
+
   undo() {
     if (this.active) return;
     this.edit(() => this.history.undo());

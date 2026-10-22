@@ -44,7 +44,7 @@ Reply with JSON only, no other text:
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
-async function ask(cfg: QwenConfig, system: string, content: Part[]): Promise<string> {
+async function ask(cfg: QwenConfig, system: string, content: Part[], timeoutMs = 20_000): Promise<string> {
   const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${cfg.apiKey}` },
@@ -57,7 +57,7 @@ async function ask(cfg: QwenConfig, system: string, content: Part[]): Promise<st
         { role: "user", content },
       ],
     }),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`dashscope ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = (await res.json()) as { choices?: { message?: { content?: unknown } }[] };
@@ -90,4 +90,17 @@ export async function moderatePost(cfg: QwenConfig, pngB64: string, message: str
   ]);
   const o = JSON.parse(stripFences(text)) as Partial<Moderation>;
   return { flagged: o.flagged === true, message_flagged: o.message_flagged === true };
+}
+
+const TEXT_SYSTEM = `You moderate a drawing-and-guessing party game played by families at a cultural heritage site in Korea.
+Players write short prompts and guesses (Korean or English) that the other players see.
+Reply with JSON only, no other text:
+{"flagged": <true|false>}
+- flagged: true if the text contains profanity, slurs, insults aimed at people, sexual or hateful content, or personal data (phone numbers, addresses). Silly, odd, misspelled or nonsense text is fine.`;
+
+/** In-game text (prompt or guess). Throws on API errors (the caller decides how to fail). */
+export async function moderateText(cfg: QwenConfig, text: string): Promise<boolean> {
+  // Short timeout: a player is waiting (and at the deadline, everyone is).
+  const reply = await ask(cfg, TEXT_SYSTEM, [{ type: "text", text: `Text: """${text}"""` }], 6000);
+  return (JSON.parse(stripFences(reply)) as { flagged?: unknown }).flagged === true;
 }

@@ -85,7 +85,12 @@ export class Guestbook {
     }
     // Mock mode: the server moderated without storage, or there is no server (word list only).
     if (!body && mockTextFlagged(message)) return { ok: false, reason: "message" };
-    const carving: Carving = { ...draft, id: `local-${Date.now().toString(36)}`, created_at: new Date().toISOString() };
+    return { ok: true, carving: this.saveLocal(draft) };
+  }
+
+  /** Keeps a (moderated) carving on this device's wall: mock mode, no shared storage. */
+  saveLocal(draft: CarvingDraft): Carving {
+    const carving: Carving = { ...draft, id: `local-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, created_at: new Date().toISOString() };
     const saved = readLocal<Carving[]>(LOCAL_KEY, []);
     const list = Array.isArray(saved) ? saved : [];
     list.push(carving);
@@ -93,7 +98,7 @@ export class Guestbook {
     if (!readLocal<Carving[] | null>(LOCAL_KEY, null)?.some((c) => c.id === carving.id)) this.memory.push(carving);
     this.markMine(carving.id);
     this.mode ??= "local";
-    return { ok: true, carving };
+    return carving;
   }
 
   mine(): Set<string> {

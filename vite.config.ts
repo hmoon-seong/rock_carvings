@@ -6,12 +6,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { defineConfig, loadEnv, type Connect, type Plugin } from "vite";
 import { handleScore } from "./server/score.ts";
+import { handleRoom } from "./server/room.ts";
 import { handleWall } from "./server/wall.ts";
 import type { Env } from "./server/http.ts";
 
 const ROUTES: Record<string, (req: Request, env: Env, ip?: string) => Promise<Response>> = {
   "/api/score": handleScore,
   "/api/wall": handleWall,
+  "/api/room": handleRoom,
 };
 
 function apiMiddleware(env: Env): Connect.NextHandleFunction {
@@ -51,6 +53,6 @@ function api(env: Env): Plugin {
 export default defineConfig(({ mode }) => {
   const env: Env = { ...process.env, ...loadEnv(mode, process.cwd(), "") };
   // MOCK=1 forces mock mode even when keys are set (e.g. to demo without spending API calls).
-  if (env.MOCK === "1") delete env.DASHSCOPE_API_KEY, delete env.SUPABASE_URL;
+  if (env.MOCK === "1") delete env.DASHSCOPE_API_KEY, delete env.SUPABASE_URL, delete env.SUPABASE_SERVICE_ROLE_KEY;
   return { plugins: [api(env)] };
 });

@@ -37,3 +37,7 @@ create table if not exists public.relay_entries (
 alter table public.relay_rooms enable row level security;
 alter table public.relay_players enable row level security;
 alter table public.relay_entries enable row level security;
+
+-- Newer Supabase projects do not grant tables created in SQL to the API roles automatically.
+-- Only the server's service role may use these tables (the anon key gets no grant at all).
+grant select, insert, update, delete on public.relay_rooms, public.relay_players, public.relay_entries to service_role;

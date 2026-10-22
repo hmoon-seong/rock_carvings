@@ -56,3 +56,12 @@ describe("handleWall (no Supabase)", () => {
     expect(r.status).toBe(400);
   });
 });
+
+import { projectUrl } from "./supabase";
+describe("projectUrl", () => {
+  it("accepts the project URL or the REST endpoint", () => {
+    for (const u of ["https://abc.supabase.co", "https://abc.supabase.co/", "https://abc.supabase.co/rest/v1", " https://abc.supabase.co/rest/v1/ "]) {
+      expect(projectUrl(u)).toBe("https://abc.supabase.co");
+    }
+  });
+});

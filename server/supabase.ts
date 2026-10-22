@@ -9,9 +9,12 @@ export interface SupabaseConf {
   key: string;
 }
 
+/** The project URL, also when it was pasted as the REST endpoint (https://<ref>.supabase.co/rest/v1/). */
+export const projectUrl = (u: string) => u.trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
+
 export function supabaseConf(env: Env): SupabaseConf | null {
   const url = env.SUPABASE_URL, key = env.SUPABASE_ANON_KEY;
-  return url && key ? { url: url.replace(/\/$/, ""), key } : null;
+  return url && key ? { url: projectUrl(url), key } : null;
 }
 
 const headers = (c: SupabaseConf) => ({ apikey: c.key, authorization: `Bearer ${c.key}`, "content-type": "application/json" });

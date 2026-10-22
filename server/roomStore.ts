@@ -10,6 +10,7 @@
 
 import type { Entry, PlayerRow, RoomState } from "../shared/relay.ts";
 import type { Env } from "./http.ts";
+import { projectUrl } from "./supabase.ts";
 
 export interface RoomRecord {
   state: RoomState;
@@ -180,6 +181,6 @@ let memory: MemoryRoomStore | null = null;
 /** Supabase with the service-role key when configured, else the process's memory. */
 export function roomStore(env: Env): RoomStore {
   const url = env.SUPABASE_URL, key = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (url && key) return new SupabaseRoomStore({ url: url.replace(/\/$/, ""), key });
+  if (url && key) return new SupabaseRoomStore({ url: projectUrl(url), key });
   return (memory ??= new MemoryRoomStore());
 }

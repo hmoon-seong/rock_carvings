@@ -40,3 +40,8 @@ create policy "anyone can add a carving" on public.carvings
 
 -- No update/delete policies: with RLS on, those are denied for anon.
 -- To remove a carving, use the dashboard (Table editor) or the service role.
+
+-- Newer Supabase projects do not grant tables created in SQL to the API roles automatically.
+-- (Row-level security above still decides which rows; these only open the table at all.)
+grant select, insert on public.carvings to anon;
+grant select, insert, update, delete on public.carvings to service_role;

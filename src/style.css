@@ -351,3 +351,66 @@ body:not(.mode-draw) #wallBtn, .ch-running #wallBtn, .challenge #wallBtn { displ
   background: rgba(255, 236, 205, 0.85); box-shadow: 0 0 0 3px rgba(255, 236, 205, 0.22), 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 #marks i.mine { background: #f0a96d; box-shadow: 0 0 0 3px rgba(240, 169, 109, 0.3), 0 1px 3px rgba(0, 0, 0, 0.5); }
+
+/* ---------------------------------------------------------------- 이어 그리기 */
+.mode-seg button { padding: 6px 10px; }
+body:not(.relay) .relay-only, .relay[data-rl="draw"] .relay-only, .mode-wall .relay-only,
+.relay .carve-only, .relay .result-only, .relay:not([data-rl="draw"]) .draw-only { display: none !important; }
+.relay .mode-seg, .relay #wallBtn, .relay #carve { display: none; }
+.relay #done { display: inline-block; }
+.rl-timer #brand { display: none; }
+.relay-only { flex-direction: column; align-items: stretch; gap: 8px; }
+.rl { display: none; flex-direction: column; gap: 8px; }
+.relay[data-rl="join"] .rl-join, .relay[data-rl="lobby"] .rl-lobby,
+.relay[data-rl="write"] .rl-text, .relay[data-rl="guess"] .rl-text,
+.relay[data-rl="wait"] .rl-wait, .relay[data-rl="reveal"] .rl-reveal, .relay[data-rl="done"] .rl-done { display: flex; }
+.rl-title { margin: 0; font-weight: 600; font-size: 14px; display: flex; flex-direction: column; gap: 2px; word-break: keep-all; }
+.rl-title small { font-weight: 400; font-size: 12px; color: var(--muted); }
+.rl-lobby .rl-title { flex-direction: row; align-items: baseline; gap: 6px; }
+.rl-code { font-size: 22px; letter-spacing: 0.12em; color: var(--accent); }
+.rl-note { font-size: 12px; color: var(--muted); word-break: keep-all; }
+.rl-note.warn { color: #b8391f; }
+.code-input {
+  width: 92px; font: inherit; font-size: 16px; padding: 9px 10px; border-radius: 12px; text-align: center;
+  border: 1px solid var(--line); background: #fff; color: var(--text); text-transform: uppercase; letter-spacing: 0.15em;
+}
+.code-input::placeholder { letter-spacing: 0; text-transform: none; }
+.rl-players { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.rl-players li { background: #e6dfd5; border-radius: 999px; padding: 5px 11px; font-size: 12.5px; transition: opacity 0.3s; }
+.rl-players li.me { box-shadow: inset 0 0 0 1.5px var(--text); }
+.rl-players li.away { opacity: 0.45; }
+.rl-players li.done { background: #ead7c8; }
+.rl-players li.done::before { content: "✓ "; color: var(--accent); font-weight: 700; }
+.rl-players li small { color: var(--muted); margin-left: 4px; font-size: 11px; }
+.rl-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 84px; overflow-y: auto; overscroll-behavior: contain; }
+.rl-feed li { font-size: 12.5px; display: flex; align-items: baseline; gap: 6px; padding: 2px 0; }
+.rl-feed li > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rl-feed li small { color: var(--muted); flex: none; font-size: 11px; }
+.rl-feed li.draw > span { color: var(--accent); }
+.rl-feed li.now { font-weight: 600; }
+.rl-feed li[data-i] { cursor: pointer; }
+.rl-feed li.picked { background: #e6dfd5; border-radius: 6px; padding: 2px 6px; margin: 0 -6px; }
+.rl-chains { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
+.rl-chains button { flex: none; background: #e6dfd5; font-size: 12px; padding: 6px 11px; }
+.rl-chains button[aria-pressed="true"] { background: var(--text); color: var(--panel); }
+.rl-done .row button { padding-left: 12px; padding-right: 12px; }
+.rl-card { top: 40%; }
+.rl-card strong { font-size: 24px; color: var(--text); margin: 8px 0 6px; }
+.rl-qr { top: 46%; padding: 16px 18px 10px; width: auto; }
+.rl-qr-img { width: 168px; height: 168px; margin: 8px auto 4px; background: #fff; border-radius: 8px; }
+.rl-qr-img svg { display: block; width: 100%; height: 100%; }
+.rl-qr p { color: var(--text); margin: 0; }
+.rl-qr b { letter-spacing: 0.1em; color: var(--accent); }
+#rlPrompt {
+  position: absolute; left: 50%; top: calc(54px + env(safe-area-inset-top)); transform: translateX(-50%);
+  width: max-content; max-width: calc(100% - 28px); margin: 0; padding: 7px 14px; display: none;
+  background: rgba(248, 245, 240, 0.93); border: 1px solid var(--line); border-radius: 12px;
+  font-size: 15px; font-weight: 600; text-align: center; word-break: keep-all; pointer-events: none;
+  box-shadow: 0 2px 10px rgba(60, 45, 30, 0.12);
+}
+#rlPrompt.show { display: block; }
+#rlPrompt small { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
+.relay[data-rl="draw"] .zoom { display: none; }
+.relay[data-rl="join"] .zoom, .relay[data-rl="lobby"] .zoom, .relay[data-rl="write"] .zoom, .relay[data-rl="wait"] .zoom,
+.relay[data-rl="join"] #scalebar, .relay[data-rl="lobby"] #scalebar, .relay[data-rl="write"] #scalebar { display: none; }
+.relay:not([data-rl="draw"]) #hint { display: none; }

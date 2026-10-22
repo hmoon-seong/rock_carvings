@@ -2,13 +2,14 @@
 // as soon as the finger lifts (실시간 새김), lit by a raking light.
 
 import { motifById, pickMotif, type Motif } from "../shared/challenge";
-import { LIMITS, rectOf, type Carving, type CarvingDraft, type Rect } from "../shared/wall";
+import type { RelayDrawing } from "../shared/relay";
+import { fitPoints, LIMITS, rectOf, type Carving, type CarvingDraft, type Rect } from "../shared/wall";
 import type { ScoreResult } from "../shared/score";
 import { ChallengeUI, type TimerEnd } from "./challenge/challengeUI";
 import { guessLine, requestScore } from "./challenge/score";
 import { maskBBox, silhouettePNG } from "./challenge/silhouette";
 import { checkNearSite, GEO_TEXT, geoBypassed } from "./guestbook/geo";
-import { toWallStrokes } from "./guestbook/serialize";
+import { fromWallStrokes, toWallStrokes } from "./guestbook/serialize";
 import { findSpots } from "./guestbook/spot";
 import { Guestbook } from "./guestbook/store";
 import { layerResolution, WallLayer, windowCovers, windowFor, type WallLayerResult, type WallWindow } from "./guestbook/wallLayer";
@@ -23,6 +24,7 @@ import { setupDrawTools } from "./ui/drawTools";
 import { Lab } from "./ui/lab";
 import { koreanDate, SHARE_SIZES, shareCrop } from "./share/layout";
 import { clipMessage, ShareSheet } from "./share/shareSheet";
+import { Relay } from "./relay/relay";
 import { LightDial } from "./ui/lightDial";
 import { dialog, toast } from "./ui/notice";
 import { paintTracing } from "./ui/tracingCanvas";
@@ -118,6 +120,9 @@ async function main() {
   };
   const ink = new Ink($("ink"), palette, inkView, BRUSH_MM.default);
   let syncTools = () => {};
+  // 이어 그리기 (set up further down)
+  let relayActive = () => false;
+  let relayDrawing = () => false;
 
   const applyCamera = () => {
     renderer.view = camera.rect(vw(), vh());
@@ -312,7 +317,7 @@ async function main() {
   const syncDraw = () => {
     hint.classList.toggle("hidden", ink.strokes.length > 0);
     carveBtn.disabled = ink.strokes.length === 0;
-    doneBtn.disabled = ink.strokes.length === 0 || !challengeUI.running;
+    doneBtn.disabled = ink.strokes.length === 0 || !(challengeUI.running || relayDrawing());
     syncTools();
   };
   ink.onChange = syncDraw;
@@ -437,7 +442,7 @@ async function main() {
     mode = m;
     document.body.classList.remove("mode-draw", "mode-carve", "mode-wall");
     document.body.classList.add(`mode-${m}`);
-    step.textContent = m === "wall" ? "모두의 벽" : motif ? "도전" : { draw: "그리기", carve: "새김 보기" }[m];
+    step.textContent = m === "wall" ? "모두의 벽" : relayActive() ? "이어 그리기" : motif ? "도전" : { draw: "그리기", carve: "새김 보기" }[m];
     placeDial();
     camera.clamp(vw(), vh(), limits());
     applyCamera();
@@ -561,10 +566,10 @@ async function main() {
   // Prompt card (at a new free spot) → 3-2-1 → timer → drawing locks → silhouette to the
   // scoring proxy → result.
   const modeSeg = $("modeSeg");
-  const syncModeSeg = () =>
-    [...modeSeg.children].forEach((b) =>
-      b.setAttribute("aria-checked", String(((b as HTMLElement).dataset.mode === "challenge") === (motif != null))),
-    );
+  const syncModeSeg = () => {
+    const on = relayActive() ? "relay" : motif ? "challenge" : "free";
+    [...modeSeg.children].forEach((b) => b.setAttribute("aria-checked", String((b as HTMLElement).dataset.mode === on)));
+  };
   const openCard = async (m: Motif) => {
     motif = m;
     document.body.classList.add("challenge");
@@ -603,6 +608,17 @@ async function main() {
       busy = false;
     }
     if (want === "free" && motif) quitChallenge();
+    if (want === "relay" && !relayActive()) {
+      busy = true;
+      const go =
+        ink.strokes.length === 0 ||
+        (await dialog("이어 그리기로 갈까요?", "친구들과 문장을 새김으로, 새김을 문장으로 이어 가요.\n지금 그리던 그림은 지워져요.", [
+          { label: "계속 그리기", value: false },
+          { label: "이어 그리기", value: true, primary: true },
+        ]));
+      busy = false;
+      if (go) void relay.open();
+    }
   });
   $("cardSwap").addEventListener("click", () => motif && challengeUI.showCard((motif = pickMotif(motif.id))));
   $("cardStart").addEventListener("click", async () => {
@@ -622,8 +638,8 @@ async function main() {
     document.body.classList.remove("ch-running");
     if (why !== "quit") finishChallenge(why);
   });
-  doneBtn.addEventListener("click", () => challengeUI.finish("done"));
-  $("timerQuit").addEventListener("click", () => quitChallenge());
+  doneBtn.addEventListener("click", () => (relayDrawing() ? relay.finishDrawing() : challengeUI.finish("done")));
+  $("timerQuit").addEventListener("click", () => (relayActive() ? relay.quit() : quitChallenge()));
 
   const scoreNum = $("scoreNum"), resGuess = $("resGuess"), resComment = $("resComment");
   const mockBadge = $("mockBadge");
@@ -811,6 +827,7 @@ async function main() {
     else parts.push(koreanDate(new Date(c.created_at)));
     const m = motifById(c.prompt);
     if (m) parts.push(`도전 ${m.label}${c.score != null ? ` ${c.score}점` : ""}`);
+    if (c.relay) parts.push(`이어 그리기 · ${c.relay}명`);
     wallInfo.textContent = parts.join(" · ");
   };
   const wallTap = (sx: number, sy: number) => {
@@ -877,33 +894,40 @@ async function main() {
   $("wallBack").addEventListener("click", () => {
     if (busy) return;
     busy = true;
-    leaveWall().finally(() => (busy = false));
+    leaveWall().finally(() => {
+      busy = false;
+      relay.resume();
+    });
   });
 
   // ---- 벽에 남기기: geolocation → a free spot → confirm (message) → moderation → stored.
-  /** The current carving as a wall row: strokes moved to the carving's box (+ bevel margin). */
-  const makeDraft = (): CarvingDraft | null => {
+  /** The drawing in its own frame: strokes moved to the carving's box (+ bevel margin), at (x0, y0) on the wall. */
+  const currentDrawing = (): (RelayDrawing & { x0: number; y0: number }) | null => {
     const bb = live.empty ? null : maskBBox(live.masks, live.w, live.h);
     if (!bb) return null;
     const [rx, ry] = live.rectMM, k = live.mmPerPx, pad = 16;
     const x0 = rx + bb[0] * k - pad, y0 = ry + bb[1] * k - pad;
     const w = Math.max(LIMITS.minSize, (bb[2] - bb[0]) * k + 2 * pad), h = Math.max(LIMITS.minSize, (bb[3] - bb[1]) * k + 2 * pad);
-    const strokes = toWallStrokes(ink.strokes, x0, y0);
     // Very long drawings: thin the points until they fit the row limit.
-    while (strokes.reduce((n, s) => n + s.p.length, 0) > LIMITS.maxPoints) {
-      for (const s of strokes) s.p = s.p.filter((_, i) => i % 4 < 2 || i >= s.p.length - 2);
-    }
+    const strokes = fitPoints(toWallStrokes(ink.strokes, x0, y0));
     if (strokes.length > LIMITS.maxStrokes) return null;
+    return { x0, y0, w, h, strokes };
+  };
+
+  /** The current carving as a wall row. */
+  const makeDraft = (): CarvingDraft | null => {
+    const d = currentDrawing();
+    if (!d) return null;
     const r = challengeResult;
     return {
-      x_mm: x0, y_mm: y0, w_mm: w, h_mm: h, src_w: w, src_h: h, strokes,
+      x_mm: d.x0, y_mm: d.y0, w_mm: d.w, h_mm: d.h, src_w: d.w, src_h: d.h, strokes: d.strokes,
       prompt: motif?.id ?? null,
       score: motif && r && !r.flagged && !r.fallback ? r.match : null,
     };
   };
 
   /** Free spots for the draft: its own spot first; smaller sizes if the wall is crowded. */
-  const findSpotsFor = async (d: CarvingDraft): Promise<Rect[]> => {
+  const findSpotsFor = async (d: Pick<CarvingDraft, "x_mm" | "y_mm" | "w_mm" | "h_mm">): Promise<Rect[]> => {
     const [mask, all] = await Promise.all([getPlacementMask(), guestbook.list([0, 0, meta.width_mm, meta.height_mm], true)]);
     const taken = all.map(rectOf);
     for (const k of [1, 0.75, 0.55]) {
@@ -976,6 +1000,101 @@ async function main() {
     }
   };
   for (const b of postButtons) b.addEventListener("click", startPost);
+  // ---------------------------------------------------------------- 이어 그리기 (relay game)
+  // The game itself is in relay/relay.ts; this is the rock it plays on.
+  /** Is the visitor near the site? (Otherwise explains why not, and offers the wall.) */
+  const nearSite = async () => {
+    if (!geoBypassed()) toast("위치를 확인하는 중…", 12_000);
+    const geo = await checkNearSite();
+    toast("", 1);
+    if (geo === "ok") return true;
+    const go = await dialog("벽에 남길 수 없어요", GEO_TEXT[geo], [
+      { label: "닫기", value: false },
+      { label: "모두의 벽 구경", value: true, primary: true },
+    ]);
+    if (go) await enterWall();
+    return false;
+  };
+  const relay = new Relay({
+    enter: () => {
+      if (motif) quitChallenge();
+      closeLab();
+      document.body.classList.add("relay");
+      ink.reset();
+      ink.enabled = false;
+      setView("rock", false);
+      setMode("carve");
+      syncDraw();
+    },
+    exit: async () => {
+      document.body.classList.remove("relay", "rl-timer");
+      ink.reset();
+      ink.enabled = true;
+      setMode("draw");
+      syncDraw();
+      await goToNewSpot(true);
+    },
+    freshRock: async () => {
+      ink.reset();
+      ink.enabled = false;
+      setView("rock");
+      setMode("carve");
+      await goToNewSpot(true);
+    },
+    startDrawing: (enabled) => {
+      requestFull();
+      setMode("draw");
+      ink.enabled = enabled;
+      syncDraw();
+    },
+    stopDrawing: () => {
+      ink.cancel();
+      ink.enabled = false;
+      syncDraw();
+      const d = currentDrawing();
+      return d ? { w: d.w, h: d.h, strokes: d.strokes } : { w: 0, h: 0, strokes: [] };
+    },
+    showDrawing: async (d, timelapse) => {
+      setView("rock");
+      setMode("carve");
+      if (!d) {
+        ink.reset();
+        atHome = true;
+        return animateCamera(homeCamera(), 500);
+      }
+      // Centred on the current spot.
+      const x0 = spot.cx - d.w / 2, y0 = spot.cy - d.h / 2;
+      ink.load(fromWallStrokes(d.strokes).map((s) => ({ ...s, points: s.points.map((v, i) => v + (i % 2 ? y0 : x0)) })));
+      requestFull();
+      await focusCarving();
+      if (timelapse) await playTimelapse();
+    },
+    stripSpot: async (strip) => {
+      const preferred = { x_mm: Math.random() * (meta.width_mm - strip.w), y_mm: Math.random() * (meta.height_mm - strip.h), w_mm: strip.w, h_mm: strip.h };
+      return (await findSpotsFor(preferred))[0] ?? null;
+    },
+    stripPNG: (strip) => {
+      const k = Math.max(2, Math.max(strip.w, strip.h) / 1200);
+      const { masks, w, h } = rasterizeMasks(fromWallStrokes(strip.strokes), palette.length, strip.w, strip.h, k);
+      return silhouettePNG(masks, w, h, 768);
+    },
+    keepLocal: (d) => void guestbook.saveLocal(d),
+    showWall: async (focus) => {
+      if (busy) return;
+      busy = true;
+      await enterWall(focus).finally(() => (busy = false));
+    },
+    inWall: () => mode === "wall",
+    nearSite,
+  });
+  relayActive = () => relay.active;
+  relayDrawing = () => relay.drawing;
+  relay.onActive = () => {
+    syncModeSeg();
+    setMode(mode);
+  };
+  relay.boot();
+
   if (import.meta.env.DEV) {
     // Test hook for the headless screen checks (not in production builds).
     Object.assign(window, {

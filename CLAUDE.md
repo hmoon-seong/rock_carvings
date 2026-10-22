@@ -87,6 +87,13 @@ Inspired by Google's Quick, Draw!.
 - Strip code fences before parsing. On any error, fall back to a neutral result instead of breaking the UI.
 - Add basic rate limiting per client.
 
+## Game mode: 이어 그리기 (relay, Gartic Phone style)
+
+Added 2026-10-22 as a third mode (자유 | 도전 | 이어 그리기). 3–8 players, each on their own phone, in one room (4-letter code + QR). Step 0 everyone writes a free-text prompt; then the chains rotate one seat per step, alternating draw (on the rock, live carving) and guess. Reveal is host-driven; at the end the host leaves each chain on the shared wall as a row of its drawings (texts are not stored). Qwen does not play; it only moderates (in-game text, and each chain before it goes on the wall).
+
+- Rules: `shared/relay.ts`. Server: `server/room.ts` (`POST /api/room`), storage `server/roomStore.ts` (memory for local dev; Supabase `supabase/relay.sql` with `SUPABASE_SERVICE_ROLE_KEY` when deployed). Client: `src/relay/`.
+- No server timers: every request settles the room (advance when all submitted or the deadline + grace passed, filling in absent players). Clients poll every 2 s (1 s during the reveal).
+
 ## Guestbook: shared rock wall
 
 - After drawing (free mode or challenge), the user can add a short message and "leave it on the wall". Their drawing is carved into the shared wall at a free spot.

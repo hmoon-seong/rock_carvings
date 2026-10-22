@@ -15,8 +15,9 @@
         <canvas id="ink" aria-label="그림판"></canvas>
         <div id="progress" aria-hidden="true"></div>
         <div class="seg mode-seg" id="modeSeg" role="radiogroup" aria-label="모드">
-          <button data-mode="free" role="radio">자유 그리기</button>
-          <button data-mode="challenge" role="radio">도전 모드</button>
+          <button data-mode="free" role="radio">자유</button>
+          <button data-mode="challenge" role="radio">도전</button>
+          <button data-mode="relay" role="radio">이어 그리기</button>
         </div>
         <button id="wallBtn" class="float-btn float-left">모두의 벽</button>
         <div id="marks" aria-hidden="true"></div>
@@ -31,6 +32,17 @@
             <button id="cardStart" class="primary">시작</button>
           </div>
         </div>
+        <div id="rlCard" class="card rl-card" role="status">
+          <small id="rlCardLabel"></small>
+          <strong id="rlCardText"></strong>
+          <p id="rlCardFrom"></p>
+        </div>
+        <div id="rlQr" class="card rl-qr">
+          <small>친구 휴대폰 카메라로 찍으면 들어와요</small>
+          <div id="rlQrImg" class="rl-qr-img"></div>
+          <p>방 코드 <b id="rlQrCode"></b></p>
+        </div>
+        <p id="rlPrompt" aria-live="polite"></p>
         <div id="countdown" aria-live="assertive"></div>
         <div id="timer" aria-live="polite">
           <span id="timerLabel"></span><b id="timerNum"></b>
@@ -129,6 +141,73 @@
             <p id="wallInfo" class="wall-info">새김을 눌러 보세요</p>
           </div>
           <button id="wallBack" class="pill">돌아가기</button>
+        </div>
+        <div class="tools relay-only">
+          <div class="rl rl-join">
+            <p class="rl-title">이어 그리기<small>3–8명이 한 문장을 새김으로, 새김을 문장으로 이어 가요. 끝나면 모두의 벽에 남아요.</small></p>
+            <label class="share-msg">
+              <input id="rlName" type="text" enterkeyhint="done" placeholder="내 이름" autocomplete="nickname" maxlength="10" />
+              <small>이름</small>
+            </label>
+            <div class="row">
+              <input id="rlCode" class="code-input" type="text" inputmode="latin" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="방 코드" maxlength="4" enterkeyhint="go" />
+              <button id="rlJoin" class="pill">들어가기</button>
+              <span class="grow"></span>
+              <button id="rlCreate" class="primary">방 만들기</button>
+            </div>
+            <div class="row"><button id="rlClose" class="text">닫기</button><span id="rlJoinNote" class="rl-note"></span></div>
+          </div>
+          <div class="rl rl-lobby">
+            <div class="row">
+              <p class="rl-title">방 코드 <b id="rlCodeShow" class="rl-code"></b> <span id="rlDevBadge" class="badge" hidden>개발용 방</span></p>
+              <span class="grow"></span>
+              <button id="rlInvite" class="pill">초대하기</button>
+            </div>
+            <ul id="rlPlayers" class="rl-players"></ul>
+            <div class="row">
+              <button id="rlLeave" class="text">나가기</button>
+              <span id="rlLobbyNote" class="rl-note grow"></span>
+              <button id="rlStart" class="primary">시작</button>
+            </div>
+          </div>
+          <div class="rl rl-text">
+            <p id="rlAsk" class="rl-title"></p>
+            <label class="share-msg">
+              <input id="rlText" type="text" enterkeyhint="send" autocomplete="off" />
+              <small id="rlTextCount">0/40</small>
+            </label>
+            <div class="row">
+              <button id="rlQuit1" class="text">나가기</button>
+              <span id="rlTextNote" class="rl-note grow"></span>
+              <button id="rlSend" class="primary">완료</button>
+            </div>
+          </div>
+          <div class="rl rl-wait">
+            <p class="rl-title">다른 사람을 기다리는 중… <small id="rlWaitCount"></small></p>
+            <ul id="rlWaitPlayers" class="rl-players"></ul>
+            <div class="row"><button id="rlQuit2" class="text">나가기</button></div>
+          </div>
+          <div class="rl rl-reveal">
+            <p class="rl-title"><span id="rlRevTitle"></span><small id="rlRevPos"></small></p>
+            <ol id="rlFeed" class="rl-feed"></ol>
+            <div class="row">
+              <button id="rlQuit3" class="text">나가기</button>
+              <span id="rlRevNote" class="rl-note grow"></span>
+              <button id="rlNext" class="primary">다음</button>
+            </div>
+          </div>
+          <div class="rl rl-done">
+            <p class="rl-title">모든 이야기를 봤어요!<small id="rlCarveNote"></small></p>
+            <div id="rlChains" class="rl-chains"></div>
+            <ol id="rlAlbum" class="rl-feed"></ol>
+            <div class="row">
+              <button id="rlExit" class="text">나가기</button>
+              <span class="grow"></span>
+              <button id="rlWall" class="pill">모두의 벽</button>
+              <button id="rlAgain" class="pill">한 판 더</button>
+              <button id="rlCarve" class="primary">벽에 남기기</button>
+            </div>
+          </div>
         </div>
         <div class="tools confirm-only">
           <p class="confirm-title">여기에 새길까요?<small>벽에는 그림만 남아요. 메시지는 확인용으로만 쓰이고 저장되지 않아요.</small></p>

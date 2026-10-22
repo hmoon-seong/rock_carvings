@@ -69,10 +69,12 @@ describe("/api/room (memory store, no API key)", () => {
     // Reveal: only the host moves it; the chain shows all three entries.
     expect((await as(ps[1], "reveal", { rv: 1 })).status).toBe(409);
     await as(host, "reveal", { rv: 1 });
-    const chain = (await as(ps[2], "chain", { chain: 0 })).body.entries as { step: number; text?: string; drawing?: unknown; auto?: boolean; name: string }[];
+    type Got = { step: number; author: string; text?: string; drawing?: unknown; auto?: boolean; name: string };
+    const chain = (await as(ps[2], "chain", { chain: 0 })).body.entries as Got[];
     expect(chain.map((e) => e.step)).toEqual([0, 1, 2]);
     expect(chain[1].drawing).toEqual(drawing);
-    expect(chain.every((e) => e.name)).toBe(true);
+    // Every player's entry carries their name; a filled-in one (the silent player) has no author.
+    expect(chain.every((e) => (e.author ? e.name : e.auto && e.text === "???"))).toBe(true);
     expect((await as(ps[2], "chain", { chain: 2 })).status).toBe(409); // not revealed yet
     v = (await as(host, "reveal", { rv: 99 })).body as unknown as RoomView;
     expect(v.state.phase).toBe("done");

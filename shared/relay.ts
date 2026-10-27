@@ -1,13 +1,15 @@
 // 이어 그리기 (a Gartic Phone-style relay): the rules, shared by the server and the client.
 //
-// N players, N chains, N steps. Each player starts one chain by writing a prompt (step 0);
-// then the chains move one seat on per step, alternating 새기기 (draw the text you got) and
-// 맞히기 (guess the drawing you got). At step s, chain c is with seat (c + s) mod N, so nobody
-// sees their own chain again until the reveal (돌려 보기).
+// One story per game, passed along like the original telephone game: one player writes the
+// sentence (step 0), then each player in turn gets only the previous step and either draws it
+// (새기기) or guesses the drawing (맞히기). Seat s plays step s, so N players make N steps and
+// everyone plays exactly once. The writer rotates: each 한 판 더 the next player who has not
+// written yet gets seat 0. Players waiting for their turn see nothing of the story (no
+// spoilers); watchers (관전), who are not in the story, see each step as it is submitted.
 //
 // The server is the only writer of the room state. It has no timers: every request runs
-// `tick()`, which moves to the next step once everyone has submitted or the deadline (plus a
-// grace period for the auto-submit to arrive) has passed, filling in for absent players.
+// `tick()`, which moves to the next step once the step's player has submitted, the deadline
+// (plus a grace period for the auto-submit to arrive) has passed, or the player is away.
 
 import { MOTIFS } from "./challenge.ts";
 import { fitPoints, LIMITS, validateStrokes, type Rect, type WallStroke } from "./wall.ts";
@@ -29,6 +31,14 @@ export const RELAY = {
   revealPollMs: 1000,
   /** A player not heard from for this long is "away" (and dropped while in the lobby). */
   awayMs: 20_000,
+  /** A step whose player is away is filled in after this long (they may still come back). */
+  awaySkipMs: 15_000,
+  /** Watchers per room (not counted in min / maxPlayers). */
+  maxWatchers: 20,
+  /** A room nobody (players or watchers) has been heard from for this long is deleted. */
+  emptyMs: 120_000,
+  /** Rooms are kept at least this long after creation (the creator is added just after). */
+  newRoomMs: 60_000,
   /** One drawing of a chain fits in this box on the wall (mm); the strip keeps this gap. */
   stripCell: 600,
   stripGap: 100,
@@ -38,10 +48,8 @@ export type Phase = "lobby" | "play" | "reveal" | "done";
 export type StepKind = "write" | "draw" | "guess";
 
 export const stepKind = (step: number): StepKind => (step === 0 ? "write" : step % 2 ? "draw" : "guess");
-/** Seat that works on `chain` at `step`. */
-export const seatFor = (chain: number, step: number, n: number) => (chain + step) % n;
-/** Chain that `seat` works on at `step`. */
-export const chainFor = (seat: number, step: number, n: number) => (((seat - step) % n) + n) % n;
+/** The one story of a game is chain 0 (entries keep the chain column for storage). */
+export const CHAIN = 0;
 
 /** A drawing in its own frame: strokes in mm of a w × h box (like a wall row's stroke frame). */
 export interface RelayDrawing {
@@ -65,19 +73,21 @@ export type CarveMark = Rect | "flagged" | "empty";
 
 export interface RoomState {
   phase: Phase;
-  /** Current step while playing. */
+  /** Current step while playing (= the seat whose turn it is). */
   step: number;
-  /** Number of players (= chains = steps), fixed at the start. */
+  /** Number of players (= steps), fixed at the start. */
   n: number;
   /** End of the current step (ms epoch); 0 outside play. */
   deadline: number;
   host: string;
-  /** Reveal position: chain = floor(rv / n), step = rv % n. */
+  /** Reveal position: the step being shown. */
   rv: number;
-  /** Chains sent to the shared wall: chain → where it was carved (mm), or why not. */
+  /** The story sent to the shared wall: chain → where it was carved (mm), or why not. */
   carved: Record<number, CarveMark>;
   /** Bumped by 한 판 더, so old entries / submits never mix with a new game. */
   game: number;
+  /** Players who wrote the sentence in earlier games, oldest first (the writer rotates). */
+  writers: string[];
 }
 
 export interface PlayerRow {
@@ -85,14 +95,16 @@ export interface PlayerRow {
   /** Secret: proves a request comes from this player. Never sent to other players. */
   token: string;
   name: string;
-  /** −1 until the game starts. */
+  /** −1 until the game starts (and always for watchers). */
   seat: number;
   joined: number;
   seen: number;
+  /** 관전: in the room, but not in the game. */
+  watch: boolean;
 }
 
 export function newRoom(host: string): RoomState {
-  return { phase: "lobby", step: 0, n: 0, deadline: 0, host, rv: 0, carved: {}, game: 0 };
+  return { phase: "lobby", step: 0, n: 0, deadline: 0, host, rv: 0, carved: {}, game: 0, writers: [] };
 }
 
 /** Room codes: 4 letters without look-alikes (I, O, L…). */
@@ -111,55 +123,64 @@ export function cleanText(t: unknown, max: number = RELAY.textMax): string {
   return [...s].slice(0, max).join("");
 }
 
-const deadlineFor = (step: number, now: number) => now + (RELAY.leadSeconds + RELAY.seconds[stepKind(step)]) * 1000;
+const stepMs = (step: number) => (RELAY.leadSeconds + RELAY.seconds[stepKind(step)]) * 1000;
+const deadlineFor = (step: number, now: number) => now + stepMs(step);
 
-/** Starts the game: seats in a random order, step 0. Returns the seat of each player id. */
+/**
+ * Starts the game. Seat 0 (the writer) is the earliest-joined player who has not written yet
+ * (when everyone has, the rotation starts over); the other seats are in a random order.
+ * `players` are the players taking part (not watchers). Returns the seat of each player id.
+ */
 export function startGame(st: RoomState, players: readonly PlayerRow[], now: number, rnd: () => number = Math.random) {
-  const order = players.map((p) => p.id);
+  const byJoin = players.slice().sort((a, b) => a.joined - b.joined);
+  const fresh = byJoin.filter((p) => !(st.writers ?? []).includes(p.id));
+  const writer = (fresh[0] ?? byJoin[0]).id;
+  const writers = fresh.length ? [...(st.writers ?? []), writer] : [writer];
+  const order = byJoin.map((p) => p.id).filter((id) => id !== writer);
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
     [order[i], order[j]] = [order[j], order[i]];
   }
+  order.unshift(writer);
   const seats = new Map(order.map((id, i) => [id, i]));
-  const state: RoomState = { ...st, phase: "play", step: 0, n: order.length, deadline: deadlineFor(0, now), rv: 0, carved: {}, game: st.game + 1 };
+  const state: RoomState = {
+    ...st, phase: "play", step: 0, n: order.length, deadline: deadlineFor(0, now), rv: 0, carved: {}, game: st.game + 1, writers,
+  };
   return { state, seats };
 }
 
 /** What an absent player's entry becomes. */
-export function fillEntry(chain: number, step: number, rnd: () => number = Math.random): Entry {
+export function fillEntry(step: number, rnd: () => number = Math.random): Entry {
   const kind = stepKind(step);
-  if (kind === "write") return { chain, step, author: "", text: MOTIFS[Math.floor(rnd() * MOTIFS.length)].label, auto: true };
-  if (kind === "draw") return { chain, step, author: "", drawing: { w: 0, h: 0, strokes: [] }, auto: true };
-  return { chain, step, author: "", text: "???", auto: true };
+  if (kind === "write") return { chain: CHAIN, step, author: "", text: MOTIFS[Math.floor(rnd() * MOTIFS.length)].label, auto: true };
+  if (kind === "draw") return { chain: CHAIN, step, author: "", drawing: { w: 0, h: 0, strokes: [] }, auto: true };
+  return { chain: CHAIN, step, author: "", text: "???", auto: true };
 }
 
 /**
- * Advances a playing room if the current step is complete or overdue. `done` = chains that have
- * an entry for the current step. Returns the new state and the entries to fill in, or null.
+ * Advances a playing room if the current step is done, overdue, or its player is away (for
+ * awaySkipMs into the step). Returns the new state and the entry to fill in, or null.
  */
-export function tick(st: RoomState, done: ReadonlySet<number>, now: number, rnd: () => number = Math.random) {
+export function tick(st: RoomState, done: boolean, away: boolean, now: number, rnd: () => number = Math.random) {
   if (st.phase !== "play") return null;
   const overdue = now > st.deadline + RELAY.graceSeconds * 1000;
-  if (done.size < st.n && !overdue) return null;
-  const fill: Entry[] = [];
-  for (let c = 0; c < st.n; c++) if (!done.has(c)) fill.push(fillEntry(c, st.step, rnd));
+  const skip = away && now >= st.deadline - stepMs(st.step) + RELAY.awaySkipMs;
+  if (!done && !overdue && !skip) return null;
+  const fill = done ? null : fillEntry(st.step, rnd);
   const next = st.step + 1;
   const state: RoomState =
     next < st.n ? { ...st, step: next, deadline: deadlineFor(next, now) } : { ...st, phase: "reveal", deadline: 0, rv: 0 };
   return { state, fill };
 }
 
-/** If the host has gone away, the earliest-joined present player becomes host (else null). */
+/** If the host has gone away, the earliest-joined present player (not a watcher) becomes host. */
 export function newHost(st: RoomState, players: readonly PlayerRow[], now: number): string | null {
   const here = (p: PlayerRow) => now - p.seen < RELAY.awayMs;
   const host = players.find((p) => p.id === st.host);
-  if (host && here(host)) return null;
-  const next = players.filter(here).sort((a, b) => a.joined - b.joined)[0];
+  if (host && !host.watch && here(host)) return null;
+  const next = players.filter((p) => here(p) && !p.watch).sort((a, b) => a.joined - b.joined)[0];
   return next && next.id !== st.host ? next.id : null;
 }
-
-/** The reveal position as [chain, step]. */
-export const revealAt = (st: RoomState): [number, number] => [Math.floor(st.rv / st.n), st.rv % st.n];
 
 /** Checks a submitted drawing (may be empty). */
 export function validateDrawing(d: unknown): string | null {
@@ -174,7 +195,7 @@ export function validateDrawing(d: unknown): string | null {
 const r05 = (v: number) => Math.round(v * 2) / 2;
 
 /**
- * A chain's drawings side by side in one stroke frame (for the shared wall): each drawing is
+ * A story's drawings side by side in one stroke frame (for the shared wall): each drawing is
  * scaled down to fit the strip cell, vertically centred, in step order. Null if all are empty.
  * (A strip holds at most maxPlayers / 2 = 4 drawings: up to 4 × LIMITS.maxStrokes strokes.)
  */

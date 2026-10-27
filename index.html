@@ -144,7 +144,7 @@
         </div>
         <div class="tools relay-only">
           <div class="rl rl-join">
-            <p class="rl-title">이어 그리기<small>3–8명이 한 문장을 새김으로, 새김을 문장으로 이어 가요. 끝나면 모두의 벽에 남아요.</small></p>
+            <p class="rl-title">이어 그리기<small>3–8명이 한 이야기를 차례로 이어 가요. 한 사람이 문장을 지으면 다음 사람은 새김으로, 그다음 사람은 다시 문장으로. 끝나면 모두의 벽에 남아요.</small></p>
             <label class="share-msg">
               <input id="rlName" type="text" enterkeyhint="done" placeholder="내 이름" autocomplete="nickname" maxlength="10" />
               <small>이름</small>
@@ -152,6 +152,7 @@
             <div class="row">
               <input id="rlCode" class="code-input" type="text" inputmode="latin" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="방 코드" maxlength="4" enterkeyhint="go" />
               <button id="rlJoin" class="pill">들어가기</button>
+              <button id="rlWatch" class="pill">관전</button>
               <span class="grow"></span>
               <button id="rlCreate" class="primary">방 만들기</button>
             </div>
@@ -167,6 +168,7 @@
             <div class="row">
               <button id="rlLeave" class="text">나가기</button>
               <span id="rlLobbyNote" class="rl-note grow"></span>
+              <button id="rlRole" class="pill" hidden>관전하기</button>
               <button id="rlStart" class="primary">시작</button>
             </div>
           </div>
@@ -183,9 +185,14 @@
             </div>
           </div>
           <div class="rl rl-wait">
-            <p class="rl-title">다른 사람을 기다리는 중… <small id="rlWaitCount"></small></p>
+            <p class="rl-title"><span id="rlWaitTitle">기다리는 중…</span><small id="rlWaitCount"></small></p>
             <ul id="rlWaitPlayers" class="rl-players"></ul>
             <div class="row"><button id="rlQuit2" class="text">나가기</button></div>
+          </div>
+          <div class="rl rl-watch">
+            <p class="rl-title"><span id="rlWatchTitle"></span><small id="rlWatchPos"></small></p>
+            <ol id="rlWatchFeed" class="rl-feed"></ol>
+            <div class="row"><button id="rlQuit4" class="text">나가기</button></div>
           </div>
           <div class="rl rl-reveal">
             <p class="rl-title"><span id="rlRevTitle"></span><small id="rlRevPos"></small></p>
@@ -197,8 +204,7 @@
             </div>
           </div>
           <div class="rl rl-done">
-            <p class="rl-title">모든 이야기를 봤어요!<small id="rlCarveNote"></small></p>
-            <div id="rlChains" class="rl-chains"></div>
+            <p class="rl-title"><span id="rlDoneTitle">이야기 끝!</span><small id="rlCarveNote"></small></p>
             <ol id="rlAlbum" class="rl-feed"></ol>
             <div class="row">
               <button id="rlExit" class="text">나가기</button>

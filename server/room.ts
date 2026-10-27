@@ -1,22 +1,25 @@
 // /api/room — 이어 그리기 rooms. One POST endpoint, { action, … }:
 //
 //   create { name }                     → { code, id, token }
-//   join   { code, name }               → { code, id, token }       | { error: "nope" | "started" | "full" }
+//   join   { code, name, watch? }       → { code, id, token }       | { error: "nope" | "started" | "full" }
+//          (watch = 관전: allowed at any phase; a player can only join in the lobby)
 // With { code, id, token } (the player's own credentials):
 //   state  { have? }                    → RoomView (polled every 1–2 s)
+//   role   { watch }                    (lobby, not the host: switch between playing and watching)
 //   start                               (host, lobby, ≥ minPlayers)
 //   submit { step, text? | drawing?, final? }   → RoomView | { error: "text" } (rewrite it)
-//   reveal { rv }                       (host: the reveal position everyone follows)
-//   chain  { chain }                    → { entries } (reveal / done)
-//   carve  { chain, x_mm, y_mm, w_mm, h_mm, image }   (host, done: the chain's drawings → shared wall)
+//   reveal { rv }                       (host: the step everyone is shown)
+//   chain                               → { entries } (the story: reveal / done; watchers also while playing)
+//   carve  { x_mm, y_mm, w_mm, h_mm, image }   (host, done: the story's drawings → shared wall)
 //   again                               (host, done: 한 판 더, same players)
-//   leave
+//   leave                               (the last one out deletes the room)
 //
 // The room moves on lazily: every request first settles it (see shared/relay.ts → tick).
+// Every request may also sweep away old and empty rooms (at most once a minute per instance).
 
 import { mockTextFlagged } from "../shared/moderation.ts";
 import {
-  chainFor, chainStrip, cleanText, fillEntry, newHost, newRoom, normCode, randomCode, RELAY, revealAt, startGame, stepKind, tick, validateDrawing,
+  CHAIN, chainStrip, cleanText, fillEntry, newHost, newRoom, normCode, randomCode, RELAY, startGame, stepKind, tick, validateDrawing,
   type CarveMark, type Entry, type PlayerRow, type RelayDrawing, type RoomState,
 } from "../shared/relay.ts";
 import { validateDraft, type CarvingDraft } from "../shared/wall.ts";
@@ -30,19 +33,29 @@ import { insertCarving, supabaseConf } from "./supabase.ts";
 const perMinute = new RateLimiter(900, 60_000);
 const creates = new RateLimiter(10, 10 * 60_000);
 
+let lastSweep = 0;
+/** Deletes old and empty rooms, at most once a minute (not awaited: no request waits for it). */
+function sweep(store: RoomStore, now: number) {
+  if (now - lastSweep < 60_000) return;
+  lastSweep = now;
+  store.cleanup(now).catch((err) => console.warn("room cleanup failed", err));
+}
+
 export interface PlayerView {
   id: string;
   name: string;
   seat: number;
   away: boolean;
-  /** Has submitted the current step. */
+  /** 관전 (not in the game). */
+  watch: boolean;
+  /** Has played their step of this game. */
   done: boolean;
 }
 
+/** The step to play, for the player whose turn it is. */
 export interface Task {
   step: number;
   kind: "write" | "draw" | "guess";
-  chain: number;
   done: boolean;
   /** What to draw or guess (omitted when the client already has it: `have`). */
   input?: { key: string; text?: string | null; drawing?: RelayDrawing | null; from: string };
@@ -98,11 +111,13 @@ async function settle(c: Ctx): Promise<void> {
     const host = newHost(st, c.players, c.now);
     if (host) next = { ...st, host };
     if (st.phase === "play") {
-      const done = new Set((await c.store.entries(c.code, st.game, { step: st.step }, false)).map((e) => e.chain));
-      const t = tick(next ?? st, done, c.now);
+      const done = (await c.store.entries(c.code, st.game, { step: st.step }, false)).length > 0;
+      const turn = c.players.find((p) => p.seat === st.step && !p.watch);
+      const away = !turn || c.now - turn.seen > RELAY.awayMs;
+      const t = tick(next ?? st, done, away, c.now);
       if (t) {
         next = t.state;
-        fill = t.fill;
+        fill = t.fill ? [t.fill] : [];
       }
     }
     if (!next) return;
@@ -137,22 +152,24 @@ async function update(c: Ctx, change: (st: RoomState) => RoomState | null): Prom
 async function view(c: Ctx, me: PlayerRow, have?: string): Promise<RoomView> {
   const st = c.rec.state;
   const now = c.now;
-  const stepEntries = st.phase === "play" ? await c.store.entries(c.code, st.game, { step: st.step }, false) : [];
-  const doneBy = new Set(stepEntries.map((e) => e.author));
+  const playing = st.phase === "play";
+  const stepDone = playing && (await c.store.entries(c.code, st.game, { step: st.step }, false)).length > 0;
   const v: RoomView = {
     code: c.code, me: me.id, now, state: st, store: c.store.kind,
     players: c.players
       .slice()
-      .sort((a, b) => (a.seat - b.seat) || (a.joined - b.joined))
-      .map((p) => ({ id: p.id, name: p.name, seat: p.seat, away: now - p.seen > RELAY.awayMs, done: doneBy.has(p.id) })),
+      .sort((a, b) => Number(a.watch) - Number(b.watch) || (a.seat - b.seat) || (a.joined - b.joined))
+      .map((p) => ({
+        id: p.id, name: p.name, seat: p.seat, watch: p.watch, away: now - p.seen > RELAY.awayMs,
+        done: playing && p.seat >= 0 && (p.seat < st.step || (p.seat === st.step && stepDone)),
+      })),
   };
-  if (st.phase === "play" && me.seat >= 0) {
-    const chain = chainFor(me.seat, st.step, st.n);
-    const task: Task = { step: st.step, kind: stepKind(st.step), chain, done: stepEntries.some((e) => e.chain === chain) };
+  if (playing && !me.watch && me.seat === st.step) {
+    const task: Task = { step: st.step, kind: stepKind(st.step), done: stepDone };
     if (st.step > 0 && !task.done) {
-      const key = `${st.game}:${chain}:${st.step - 1}`;
+      const key = `${st.game}:${st.step - 1}`;
       if (have !== key) {
-        const [prev] = await c.store.entries(c.code, st.game, { chain, step: st.step - 1 }, true);
+        const [prev] = await c.store.entries(c.code, st.game, { chain: CHAIN, step: st.step - 1 }, true);
         if (prev) task.input = { key, text: prev.text, drawing: prev.drawing, from: c.players.find((p) => p.id === prev.author)?.name ?? "" };
       } else task.input = { key, from: "" };
     }
@@ -176,7 +193,7 @@ async function checkText(env: Env, text: string): Promise<boolean> {
 
 type Body = {
   action?: string; code?: string; id?: string; token?: string; name?: string; have?: string;
-  step?: number; text?: string; drawing?: RelayDrawing; final?: boolean; rv?: number; chain?: number;
+  step?: number; text?: string; drawing?: RelayDrawing; final?: boolean; rv?: number; watch?: boolean;
   x_mm?: number; y_mm?: number; w_mm?: number; h_mm?: number; image?: string;
 };
 
@@ -188,12 +205,12 @@ export async function handleRoom(req: Request, env: Env, ip?: string): Promise<R
   if (!b || typeof b.action !== "string") return json({ error: "invalid" }, 400);
   const store = roomStore(env);
   const now = Date.now();
+  sweep(store, now);
 
   try {
     if (b.action === "create") {
       if (!allow(who, creates)) return json({ error: "limited" }, 429);
-      store.cleanup(now - 24 * 3_600_000).catch((err) => console.warn("room cleanup failed", err));
-      const me: PlayerRow = { id: id(), token: token(), name: cleanName(b.name, []), seat: -1, joined: now, seen: now };
+      const me: PlayerRow = { id: id(), token: token(), name: cleanName(b.name, []), seat: -1, joined: now, seen: now, watch: false };
       for (let i = 0; i < 8; i++) {
         const code = randomCode();
         if (await store.createRoom(code, newRoom(me.id), now)) {
@@ -209,11 +226,14 @@ export async function handleRoom(req: Request, env: Env, ip?: string): Promise<R
     if (!rec) return json({ error: "nope" }, 404);
     const c: Ctx = { store, code, rec, players: await store.players(code), now };
 
+    const counts = () => ({ play: c.players.filter((p) => !p.watch).length, watch: c.players.filter((p) => p.watch).length });
+
     if (b.action === "join") {
       await settle(c);
-      if (c.rec.state.phase !== "lobby") return json({ error: "started" }, 409);
-      if (c.players.length >= RELAY.maxPlayers) return json({ error: "full" }, 409);
-      const me: PlayerRow = { id: id(), token: token(), name: cleanName(b.name, c.players.map((p) => p.name)), seat: -1, joined: now, seen: now };
+      const watch = b.watch === true;
+      if (!watch && c.rec.state.phase !== "lobby") return json({ error: "started" }, 409);
+      if (watch ? counts().watch >= RELAY.maxWatchers : counts().play >= RELAY.maxPlayers) return json({ error: "full" }, 409);
+      const me: PlayerRow = { id: id(), token: token(), name: cleanName(b.name, c.players.map((p) => p.name)), seat: -1, joined: now, seen: now, watch };
       await store.addPlayer(code, me);
       return json({ code, id: me.id, token: me.token });
     }
@@ -232,49 +252,67 @@ export async function handleRoom(req: Request, env: Env, ip?: string): Promise<R
         return json(await view(c, me, b.have));
 
       case "leave":
-        if (c.rec.state.phase === "lobby") await store.removePlayer(code, me.id);
-        else await store.updatePlayer(code, me.id, { seen: 0 });
         c.players = c.players.filter((p) => p.id !== me.id);
+        if (!c.players.some((p) => now - p.seen <= RELAY.emptyMs)) {
+          await store.deleteRoom(code); // the last one out: the room is empty
+          return json({ ok: true });
+        }
+        if (c.rec.state.phase === "lobby" || me.watch) await store.removePlayer(code, me.id);
+        else await store.updatePlayer(code, me.id, { seen: 0 });
         await settle(c);
         return json({ ok: true });
 
+      case "role": {
+        await settle(c);
+        const watch = b.watch === true;
+        if (c.rec.state.phase !== "lobby" || (watch && isHost())) return json({ error: "state" }, 409);
+        if (watch !== me.watch) {
+          if (watch ? counts().watch >= RELAY.maxWatchers : counts().play >= RELAY.maxPlayers) return json({ error: "full" }, 409);
+          await store.updatePlayer(code, me.id, { watch });
+          for (const p of c.players) if (p.id === me.id) p.watch = watch;
+          me.watch = watch;
+        }
+        return json(await view(c, me));
+      }
+
       case "start": {
         await settle(c);
-        const here = c.players.filter((p) => now - p.seen <= RELAY.awayMs || p.id === me.id);
+        const here = c.players.filter((p) => !p.watch && (now - p.seen <= RELAY.awayMs || p.id === me.id));
         if (!isHost() || c.rec.state.phase !== "lobby") return json({ error: "state" }, 409);
         if (here.length < RELAY.minPlayers) return json({ error: "few" }, 409);
         const { state, seats } = startGame(c.rec.state, here, now);
         for (const p of c.players) {
+          if (p.watch) continue;
           const seat = seats.get(p.id) ?? -1;
           if (seat < 0 && p.id !== me.id) await store.removePlayer(code, p.id); // away in the lobby: not in this game
           else await store.updatePlayer(code, p.id, { seat });
           p.seat = seat;
         }
-        c.players = c.players.filter((p) => p.seat >= 0);
+        c.players = c.players.filter((p) => p.seat >= 0 || p.watch);
         if (!(await update(c, (st) => (st.phase === "lobby" ? state : null)))) return json({ error: "state" }, 409);
         return json(await view(c, me));
       }
 
       case "submit": {
         const st = c.rec.state;
-        if (st.phase !== "play" || me.seat < 0 || b.step !== st.step) {
+        if (st.phase !== "play" || me.watch || me.seat !== st.step || b.step !== st.step) {
           await settle(c);
           return json(await view(c, me));
         }
-        const chain = chainFor(me.seat, st.step, st.n);
+        const chain = CHAIN;
         const kind = stepKind(st.step);
         let entry: Entry;
         if (kind === "draw") {
           if (validateDrawing(b.drawing)) return json({ error: "invalid" }, 400);
           const d = b.drawing!;
-          entry = d.strokes.length ? { chain, step: st.step, author: me.id, drawing: d } : { ...fillEntry(chain, st.step), author: me.id };
+          entry = d.strokes.length ? { chain, step: st.step, author: me.id, drawing: d } : { ...fillEntry(st.step), author: me.id };
         } else {
           const text = cleanText(b.text);
-          if (!text) entry = { ...fillEntry(chain, st.step), author: me.id };
+          if (!text) entry = { ...fillEntry(st.step), author: me.id };
           else if (await checkText(env, text)) {
             // At the deadline there is no time to rewrite it.
             if (!b.final) return json({ error: "text" });
-            entry = { ...fillEntry(chain, st.step), author: me.id };
+            entry = { ...fillEntry(st.step), author: me.id };
           } else entry = { chain, step: st.step, author: me.id, text };
         }
         await store.addEntries(code, st.game, [entry]);
@@ -286,20 +324,16 @@ export async function handleRoom(req: Request, env: Env, ip?: string): Promise<R
         if (!isHost() || !["reveal", "done"].includes(c.rec.state.phase)) return json({ error: "state" }, 409);
         const rv = Math.round(Number(b.rv));
         if (!Number.isFinite(rv)) return json({ error: "invalid" }, 400);
-        await update(c, (st) => {
-          const end = st.n * st.n;
-          return rv >= end ? { ...st, phase: "done", rv: end - 1 } : { ...st, phase: "reveal", rv: Math.max(0, rv) };
-        });
+        await update(c, (st) => (rv >= st.n ? { ...st, phase: "done", rv: st.n - 1 } : { ...st, phase: "reveal", rv: Math.max(0, rv) }));
         return json(await view(c, me));
       }
 
       case "chain": {
+        // Players see the story from the reveal on; watchers, who are not in it, step by step.
         const st = c.rec.state;
-        const chain = Number(b.chain);
-        if (!["reveal", "done"].includes(st.phase) || !Number.isInteger(chain) || chain < 0 || chain >= st.n) return json({ error: "state" }, 409);
-        if (st.phase === "reveal" && chain > revealAt(st)[0]) return json({ error: "state" }, 409);
+        if (!["reveal", "done"].includes(st.phase) && !(me.watch && st.phase === "play")) return json({ error: "state" }, 409);
         const names = new Map(c.players.map((p) => [p.id, p.name]));
-        const entries: ChainEntry[] = (await store.entries(code, st.game, { chain }, true)).map((e) => ({ ...e, name: names.get(e.author) ?? "" }));
+        const entries: ChainEntry[] = (await store.entries(code, st.game, { chain: CHAIN }, true)).map((e) => ({ ...e, name: names.get(e.author) ?? "" }));
         return json({ entries });
       }
 
@@ -308,8 +342,8 @@ export async function handleRoom(req: Request, env: Env, ip?: string): Promise<R
 
       case "again": {
         if (!isHost() || c.rec.state.phase !== "done") return json({ error: "state" }, 409);
-        for (const p of c.players) await store.updatePlayer(code, p.id, { seat: -1 });
-        await update(c, (st) => (st.phase === "done" ? { ...newRoom(st.host), game: st.game } : null));
+        for (const p of c.players) if (p.seat >= 0) await store.updatePlayer(code, p.id, { seat: -1 });
+        await update(c, (st) => (st.phase === "done" ? { ...newRoom(st.host), game: st.game, writers: st.writers } : null));
         c.players = c.players.map((p) => ({ ...p, seat: -1 }));
         return json(await view(c, { ...me, seat: -1 }));
       }
@@ -322,14 +356,14 @@ export async function handleRoom(req: Request, env: Env, ip?: string): Promise<R
 }
 
 /**
- * Carves one chain into the shared wall: its drawings side by side (built here, from the
+ * Carves the story into the shared wall: its drawings side by side (built here, from the
  * stored entries) at the spot the host's phone found, after moderating the strip image and
- * the chain's texts together. The texts themselves are not stored on the wall.
+ * the story's texts together. The texts themselves are not stored on the wall.
  */
 async function carve(c: Ctx, env: Env, isHost: boolean, b: Body): Promise<[unknown, number?]> {
   const st = c.rec.state;
-  const chain = Number(b.chain);
-  if (!isHost || st.phase !== "done" || !Number.isInteger(chain) || chain < 0 || chain >= st.n) return [{ error: "state" }, 409];
+  const chain = CHAIN;
+  if (!isHost || st.phase !== "done") return [{ error: "state" }, 409];
   if (st.carved[chain]) return [{ ok: false, reason: "done" }];
   const entries = await c.store.entries(c.code, st.game, { chain }, true);
   const strip = chainStrip(entries.flatMap((e) => (e.drawing ? [e.drawing] : [])));

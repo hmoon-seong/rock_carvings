@@ -8,7 +8,7 @@
 // In memory only works while one process serves every request (`npm run dev` / `preview`).
 // Netlify functions run as many short-lived instances, so a deployed site needs Supabase.
 
-import type { Entry, PlayerRow, RoomState } from "../shared/relay.ts";
+import { RELAY, type Entry, type PlayerRow, type RoomState } from "../shared/relay.ts";
 import type { Env } from "./http.ts";
 import { projectUrl } from "./supabase.ts";
 
@@ -27,15 +27,22 @@ export interface RoomStore {
   casRoom(code: string, version: number, state: RoomState): Promise<boolean>;
   players(code: string): Promise<PlayerRow[]>;
   addPlayer(code: string, p: PlayerRow): Promise<void>;
-  updatePlayer(code: string, id: string, patch: Partial<Pick<PlayerRow, "seat" | "seen" | "name">>): Promise<void>;
+  updatePlayer(code: string, id: string, patch: Partial<Pick<PlayerRow, "seat" | "seen" | "name" | "watch">>): Promise<void>;
   removePlayer(code: string, id: string): Promise<void>;
   /** Entries of the current game, optionally of one step or one chain. `full` = with text and drawing. */
   entries(code: string, game: number, q: { step?: number; chain?: number }, full: boolean): Promise<Entry[]>;
   /** Inserts entries; an entry that already exists (same chain + step) is kept. */
   addEntries(code: string, game: number, list: Entry[]): Promise<void>;
-  /** Deletes rooms (with their players and entries) created before `before` (ms). */
-  cleanup(before: number): Promise<void>;
+  /** Deletes a room with its players and entries. */
+  deleteRoom(code: string): Promise<void>;
+  /**
+   * Deletes old rooms (created more than a day ago) and empty ones: no player or watcher seen
+   * for RELAY.emptyMs (rooms younger than RELAY.newRoomMs are kept). Returns how many.
+   */
+  cleanup(now: number): Promise<number>;
 }
+
+const DAY_MS = 24 * 3_600_000;
 
 // ---------------------------------------------------------------- memory
 
@@ -94,8 +101,20 @@ export class MemoryRoomStore implements RoomStore {
       if (!r.entries.has(key)) r.entries.set(key, { ...structuredClone(e), game });
     }
   }
-  async cleanup(before: number) {
-    for (const [code, r] of this.rooms) if (r.created < before) this.rooms.delete(code);
+  async deleteRoom(code: string) {
+    this.rooms.delete(code);
+  }
+  async cleanup(now: number) {
+    let n = 0;
+    for (const [code, r] of this.rooms) {
+      const old = r.created < now - DAY_MS;
+      const empty = r.created < now - RELAY.newRoomMs && !r.players.some((p) => p.seen > now - RELAY.emptyMs);
+      if (old || empty) {
+        this.rooms.delete(code);
+        n++;
+      }
+    }
+    return n;
   }
 }
 
@@ -146,7 +165,7 @@ export class SupabaseRoomStore implements RoomStore {
     return rows.length === 1;
   }
   async players(code: string) {
-    return (await this.req(`relay_players?room=eq.${code}&select=id,token,name,seat,joined,seen&order=joined`)) as PlayerRow[];
+    return (await this.req(`relay_players?room=eq.${code}&select=id,token,name,seat,joined,seen,watch&order=joined`)) as PlayerRow[];
   }
   async addPlayer(code: string, p: PlayerRow) {
     await this.req("relay_players", { method: "POST", body: JSON.stringify({ room: code, ...p }) });
@@ -171,8 +190,13 @@ export class SupabaseRoomStore implements RoomStore {
     }));
     await this.req("relay_entries?on_conflict=room,game,chain,step", { method: "POST", prefer: "resolution=ignore-duplicates", body: JSON.stringify(rows) });
   }
-  async cleanup(before: number) {
-    await this.req(`relay_rooms?created_at=lt.${new Date(before).toISOString()}`, { method: "DELETE" });
+  async deleteRoom(code: string) {
+    await this.req(`relay_rooms?code=eq.${code}`, { method: "DELETE" });
+  }
+  async cleanup() {
+    // supabase/relay.sql → relay_cleanup(): the same rule as the memory store, in one query.
+    const n = await this.req("rpc/relay_cleanup", { method: "POST", body: JSON.stringify({ empty_ms: RELAY.emptyMs, new_ms: RELAY.newRoomMs }) });
+    return Number(n) || 0;
   }
 }
 

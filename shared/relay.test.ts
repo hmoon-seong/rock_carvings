@@ -1,65 +1,66 @@
 import { describe, expect, it } from "vitest";
-import { chainFor, chainStrip, cleanText, newHost, newRoom, normCode, RELAY, seatFor, startGame, stepKind, tick, validateDrawing, type PlayerRow } from "./relay";
+import { chainStrip, cleanText, newHost, newRoom, normCode, RELAY, startGame, stepKind, tick, validateDrawing, type PlayerRow } from "./relay";
 import { LIMITS, validateDraft } from "./wall";
 
-const player = (id: string, joined: number, seen = 1000): PlayerRow => ({ id, token: "t" + id, name: id, seat: -1, joined, seen });
+const player = (id: string, joined: number, seen = 1000, watch = false): PlayerRow => ({ id, token: "t" + id, name: id, seat: -1, joined, seen, watch });
+const three = () => [player("a", 1), player("b", 2), player("c", 3)];
 
 describe("relay rules", () => {
   it("alternates write, draw, guess", () => {
     expect([0, 1, 2, 3, 4, 5].map(stepKind)).toEqual(["write", "draw", "guess", "draw", "guess", "draw"]);
   });
 
-  it("gives every seat a different chain each step, and never its own chain after step 0", () => {
-    for (let n = RELAY.minPlayers; n <= RELAY.maxPlayers; n++) {
-      for (let step = 0; step < n; step++) {
-        const chains = new Set<number>();
-        for (let seat = 0; seat < n; seat++) {
-          const c = chainFor(seat, step, n);
-          expect(seatFor(c, step, n)).toBe(seat);
-          if (step > 0) expect(c).not.toBe(seat);
-          chains.add(c);
-        }
-        expect(chains.size).toBe(n);
-      }
-      // Each seat works on each chain exactly once over the game.
-      for (let seat = 0; seat < n; seat++) {
-        expect(new Set(Array.from({ length: n }, (_, s) => chainFor(seat, s, n))).size).toBe(n);
-      }
-    }
-  });
-
-  it("starts with shuffled seats and a deadline", () => {
-    const players = [player("a", 1), player("b", 2), player("c", 3)];
-    const { state, seats } = startGame(newRoom("a"), players, 10_000, () => 0.5);
-    expect(state).toMatchObject({ phase: "play", step: 0, n: 3, game: 1 });
+  it("starts with one writer at seat 0, the others shuffled, and a deadline", () => {
+    const { state, seats } = startGame(newRoom("a"), three(), 10_000, () => 0.5);
+    expect(state).toMatchObject({ phase: "play", step: 0, n: 3, game: 1, writers: ["a"] });
     expect(state.deadline).toBe(10_000 + (RELAY.leadSeconds + RELAY.seconds.write) * 1000);
+    expect(seats.get("a")).toBe(0);
     expect([...seats.values()].sort()).toEqual([0, 1, 2]);
   });
 
-  it("advances when everyone has submitted, or after the deadline with fill-ins", () => {
-    const { state } = startGame(newRoom("a"), [player("a", 1), player("b", 2), player("c", 3)], 0);
-    expect(tick(state, new Set([0, 1]), 1000)).toBeNull();
-    const all = tick(state, new Set([0, 1, 2]), 1000)!;
-    expect(all.fill).toEqual([]);
-    expect(all.state).toMatchObject({ step: 1, phase: "play" });
+  it("rotates the writer each game, then starts over", () => {
+    const ps = three();
+    let st = newRoom("a");
+    const writers: string[] = [];
+    for (let g = 0; g < 4; g++) {
+      const { state, seats } = startGame({ ...st, phase: "lobby" }, ps, 0);
+      writers.push([...seats].find(([, s]) => s === 0)![0]);
+      st = state;
+    }
+    expect(writers).toEqual(["a", "b", "c", "a"]);
+    expect(st.writers).toEqual(["a"]);
+    // A newcomer writes before anyone writes a second time.
+    const { seats } = startGame({ ...st, phase: "lobby" }, [...ps, player("d", 9)], 0);
+    expect([...seats].find(([, s]) => s === 0)![0]).toBe("b");
+  });
 
-    const late = tick(state, new Set([1]), state.deadline + RELAY.graceSeconds * 1000 + 1, () => 0)!;
-    expect(late.fill.map((e) => e.chain)).toEqual([0, 2]);
-    expect(late.fill.every((e) => e.auto && typeof e.text === "string" && e.text.length > 0)).toBe(true);
-    // Within the grace period it still waits for the auto-submits.
-    expect(tick(state, new Set([1]), state.deadline + 1000)).toBeNull();
+  it("advances when the step is done, after the deadline, or when its player is away", () => {
+    const { state } = startGame(newRoom("a"), three(), 0);
+    expect(tick(state, false, false, 1000)).toBeNull();
+    const done = tick(state, true, false, 1000)!;
+    expect(done.fill).toBeNull();
+    expect(done.state).toMatchObject({ step: 1, phase: "play" });
+
+    const late = tick(state, false, false, state.deadline + RELAY.graceSeconds * 1000 + 1, () => 0)!;
+    expect(late.fill).toMatchObject({ chain: 0, step: 0, auto: true });
+    expect(typeof late.fill!.text).toBe("string");
+    // Within the grace period it still waits for the auto-submit.
+    expect(tick(state, false, false, state.deadline + 1000)).toBeNull();
+    // An away player gets a short while to come back, then is skipped.
+    expect(tick(state, false, true, RELAY.awaySkipMs - 1)).toBeNull();
+    expect(tick(state, false, true, RELAY.awaySkipMs)!.state.step).toBe(1);
   });
 
   it("goes to the reveal after the last step", () => {
-    const st = { ...startGame(newRoom("a"), [player("a", 1), player("b", 2), player("c", 3)], 0).state, step: 2 };
-    const t = tick(st, new Set([0, 1, 2]), 5)!;
+    const st = { ...startGame(newRoom("a"), three(), 0).state, step: 2 };
+    const t = tick(st, true, false, 5)!;
     expect(t.state).toMatchObject({ phase: "reveal", rv: 0, deadline: 0 });
   });
 
   it("fills a missing drawing with an empty one", () => {
-    const st = { ...startGame(newRoom("a"), [player("a", 1), player("b", 2), player("c", 3)], 0).state, step: 1 };
-    const t = tick(st, new Set([0, 1]), st.deadline + 60_000)!;
-    expect(t.fill).toEqual([{ chain: 2, step: 1, author: "", drawing: { w: 0, h: 0, strokes: [] }, auto: true }]);
+    const st = { ...startGame(newRoom("a"), three(), 0).state, step: 1 };
+    const t = tick(st, false, false, st.deadline + 60_000)!;
+    expect(t.fill).toEqual({ chain: 0, step: 1, author: "", drawing: { w: 0, h: 0, strokes: [] }, auto: true });
   });
 
   it("hands the host role to the earliest present player", () => {
@@ -68,6 +69,8 @@ describe("relay rules", () => {
     expect(newHost(st, [player("a", 1, now), player("b", 2, now)], now)).toBeNull();
     expect(newHost(st, [player("a", 1, 0), player("c", 3, now), player("b", 2, now)], now)).toBe("b");
     expect(newHost(st, [player("a", 1, 0)], now)).toBeNull();
+    // Never a watcher.
+    expect(newHost(st, [player("a", 1, 0), player("w", 2, now, true), player("c", 3, now)], now)).toBe("c");
   });
 
   it("cleans text and codes", () => {

@@ -98,8 +98,9 @@ export class RelayApi {
     this.setSession(await this.post<Session>({ action: "create", name }));
   }
 
-  async join(code: string, name: string) {
-    this.setSession(await this.post<Session>({ action: "join", code, name }));
+  /** `watch` = 관전 (the only way into a room that has started). */
+  async join(code: string, name: string, watch = false) {
+    this.setSession(await this.post<Session>({ action: "join", code, name, watch }));
   }
 
   /** Fetches the room now (and reports it through onView). */
@@ -126,18 +127,19 @@ export class RelayApi {
     }
   }
 
-  async act(action: "start" | "again" | "reveal", extra: Record<string, unknown> = {}) {
+  async act(action: "start" | "again" | "reveal" | "role", extra: Record<string, unknown> = {}) {
     this.view(await this.as<RoomView>(action, extra));
   }
 
-  chain(chain: number) {
-    return this.as<{ entries: ChainEntry[] }>("chain", { chain }).then((r) => r.entries);
+  /** The game's story so far (reveal / done; watchers also while playing). */
+  chain() {
+    return this.as<{ entries: ChainEntry[] }>("chain").then((r) => r.entries);
   }
 
-  carve(chain: number, rect: [number, number, number, number], image: string) {
+  carve(rect: [number, number, number, number], image: string) {
     const [x_mm, y_mm, w_mm, h_mm] = rect;
     return this.as<{ ok: boolean; reason?: string; mode?: string; draft?: import("../../shared/wall").CarvingDraft }>("carve", {
-      chain, x_mm, y_mm, w_mm, h_mm, image,
+      x_mm, y_mm, w_mm, h_mm, image,
     });
   }
 

@@ -1,15 +1,15 @@
 // 이어 그리기 (a Gartic Phone-style relay): the rules, shared by the server and the client.
 //
-// One story per game, passed along like the original telephone game: one player writes the
-// sentence (step 0), then each player in turn gets only the previous step and either draws it
-// (새기기) or guesses the drawing (맞히기). Seat s plays step s, so N players make N steps and
-// everyone plays exactly once. The writer rotates: each 한 판 더 the next player who has not
-// written yet gets seat 0. Players waiting for their turn see nothing of the story (no
-// spoilers); watchers (관전), who are not in the story, see each step as it is submitted.
+// N players, N chains, N steps. Each player starts one chain by writing a prompt (step 0);
+// then the chains move one seat on per step, alternating 새기기 (draw the text you got) and
+// 맞히기 (guess the drawing you got). At step s, chain c is with seat (c + s) mod N, so nobody
+// sees their own chain again until the end, where everyone gets the album of their own chain.
+// Watchers (관전) are in the room but not in the game; they follow the chains as they grow.
 //
 // The server is the only writer of the room state. It has no timers: every request runs
-// `tick()`, which moves to the next step once the step's player has submitted, the deadline
-// (plus a grace period for the auto-submit to arrive) has passed, or the player is away.
+// `tick()`, which moves to the next step once everyone has submitted, the deadline (plus a
+// grace period for the auto-submit to arrive) has passed, or everyone still missing is away,
+// filling in for absent players.
 
 import { MOTIFS } from "./challenge.ts";
 import { fitPoints, LIMITS, validateStrokes, type Rect, type WallStroke } from "./wall.ts";
@@ -26,12 +26,11 @@ export const RELAY = {
   /** Prompt / guess length (characters). */
   textMax: 40,
   nameMax: 10,
-  /** Polling interval of the clients (ms); faster during the reveal, which the host drives. */
+  /** Polling interval of the clients (ms). */
   pollMs: 2000,
-  revealPollMs: 1000,
   /** A player not heard from for this long is "away" (and dropped while in the lobby). */
   awayMs: 20_000,
-  /** A step whose player is away is filled in after this long (they may still come back). */
+  /** When everyone still missing is away, the step is filled in after this long (they may come back). */
   awaySkipMs: 15_000,
   /** Watchers per room (not counted in min / maxPlayers). */
   maxWatchers: 20,
@@ -44,12 +43,14 @@ export const RELAY = {
   stripGap: 100,
 };
 
-export type Phase = "lobby" | "play" | "reveal" | "done";
+export type Phase = "lobby" | "play" | "done";
 export type StepKind = "write" | "draw" | "guess";
 
 export const stepKind = (step: number): StepKind => (step === 0 ? "write" : step % 2 ? "draw" : "guess");
-/** The one story of a game is chain 0 (entries keep the chain column for storage). */
-export const CHAIN = 0;
+/** Seat that works on `chain` at `step`. */
+export const seatFor = (chain: number, step: number, n: number) => (chain + step) % n;
+/** Chain that `seat` works on at `step` (at step 0, seat s starts chain s). */
+export const chainFor = (seat: number, step: number, n: number) => (((seat - step) % n) + n) % n;
 
 /** A drawing in its own frame: strokes in mm of a w × h box (like a wall row's stroke frame). */
 export interface RelayDrawing {
@@ -73,21 +74,17 @@ export type CarveMark = Rect | "flagged" | "empty";
 
 export interface RoomState {
   phase: Phase;
-  /** Current step while playing (= the seat whose turn it is). */
+  /** Current step while playing. */
   step: number;
-  /** Number of players (= steps), fixed at the start. */
+  /** Number of players (= chains = steps), fixed at the start. */
   n: number;
   /** End of the current step (ms epoch); 0 outside play. */
   deadline: number;
   host: string;
-  /** Reveal position: the step being shown. */
-  rv: number;
-  /** The story sent to the shared wall: chain → where it was carved (mm), or why not. */
+  /** Chains sent to the shared wall: chain → where it was carved (mm), or why not. */
   carved: Record<number, CarveMark>;
   /** Bumped by 한 판 더, so old entries / submits never mix with a new game. */
   game: number;
-  /** Players who wrote the sentence in earlier games, oldest first (the writer rotates). */
-  writers: string[];
 }
 
 export interface PlayerRow {
@@ -104,7 +101,7 @@ export interface PlayerRow {
 }
 
 export function newRoom(host: string): RoomState {
-  return { phase: "lobby", step: 0, n: 0, deadline: 0, host, rv: 0, carved: {}, game: 0, writers: [] };
+  return { phase: "lobby", step: 0, n: 0, deadline: 0, host, carved: {}, game: 0 };
 }
 
 /** Room codes: 4 letters without look-alikes (I, O, L…). */
@@ -126,50 +123,41 @@ export function cleanText(t: unknown, max: number = RELAY.textMax): string {
 const stepMs = (step: number) => (RELAY.leadSeconds + RELAY.seconds[stepKind(step)]) * 1000;
 const deadlineFor = (step: number, now: number) => now + stepMs(step);
 
-/**
- * Starts the game. Seat 0 (the writer) is the earliest-joined player who has not written yet
- * (when everyone has, the rotation starts over); the other seats are in a random order.
- * `players` are the players taking part (not watchers). Returns the seat of each player id.
- */
+/** Starts the game: seats in a random order, step 0. Returns the seat of each player id. */
 export function startGame(st: RoomState, players: readonly PlayerRow[], now: number, rnd: () => number = Math.random) {
-  const byJoin = players.slice().sort((a, b) => a.joined - b.joined);
-  const fresh = byJoin.filter((p) => !(st.writers ?? []).includes(p.id));
-  const writer = (fresh[0] ?? byJoin[0]).id;
-  const writers = fresh.length ? [...(st.writers ?? []), writer] : [writer];
-  const order = byJoin.map((p) => p.id).filter((id) => id !== writer);
+  const order = players.map((p) => p.id);
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
     [order[i], order[j]] = [order[j], order[i]];
   }
-  order.unshift(writer);
   const seats = new Map(order.map((id, i) => [id, i]));
-  const state: RoomState = {
-    ...st, phase: "play", step: 0, n: order.length, deadline: deadlineFor(0, now), rv: 0, carved: {}, game: st.game + 1, writers,
-  };
+  const state: RoomState = { ...st, phase: "play", step: 0, n: order.length, deadline: deadlineFor(0, now), carved: {}, game: st.game + 1 };
   return { state, seats };
 }
 
 /** What an absent player's entry becomes. */
-export function fillEntry(step: number, rnd: () => number = Math.random): Entry {
+export function fillEntry(chain: number, step: number, rnd: () => number = Math.random): Entry {
   const kind = stepKind(step);
-  if (kind === "write") return { chain: CHAIN, step, author: "", text: MOTIFS[Math.floor(rnd() * MOTIFS.length)].label, auto: true };
-  if (kind === "draw") return { chain: CHAIN, step, author: "", drawing: { w: 0, h: 0, strokes: [] }, auto: true };
-  return { chain: CHAIN, step, author: "", text: "???", auto: true };
+  if (kind === "write") return { chain, step, author: "", text: MOTIFS[Math.floor(rnd() * MOTIFS.length)].label, auto: true };
+  if (kind === "draw") return { chain, step, author: "", drawing: { w: 0, h: 0, strokes: [] }, auto: true };
+  return { chain, step, author: "", text: "???", auto: true };
 }
 
 /**
- * Advances a playing room if the current step is done, overdue, or its player is away (for
- * awaySkipMs into the step). Returns the new state and the entry to fill in, or null.
+ * Advances a playing room if the current step is complete, overdue, or everyone still missing
+ * is away (for awaySkipMs into the step). `done` = chains that have an entry for the current
+ * step; `away` = seats whose player is away. Returns the new state and the entries to fill in.
  */
-export function tick(st: RoomState, done: boolean, away: boolean, now: number, rnd: () => number = Math.random) {
+export function tick(st: RoomState, done: ReadonlySet<number>, away: ReadonlySet<number>, now: number, rnd: () => number = Math.random) {
   if (st.phase !== "play") return null;
+  const missing = Array.from({ length: st.n }, (_, c) => c).filter((c) => !done.has(c));
   const overdue = now > st.deadline + RELAY.graceSeconds * 1000;
-  const skip = away && now >= st.deadline - stepMs(st.step) + RELAY.awaySkipMs;
-  if (!done && !overdue && !skip) return null;
-  const fill = done ? null : fillEntry(st.step, rnd);
+  const allAway = missing.length > 0 && missing.every((c) => away.has(seatFor(c, st.step, st.n)));
+  const skip = allAway && now >= st.deadline - stepMs(st.step) + RELAY.awaySkipMs;
+  if (missing.length && !overdue && !skip) return null;
+  const fill = missing.map((c) => fillEntry(c, st.step, rnd));
   const next = st.step + 1;
-  const state: RoomState =
-    next < st.n ? { ...st, step: next, deadline: deadlineFor(next, now) } : { ...st, phase: "reveal", deadline: 0, rv: 0 };
+  const state: RoomState = next < st.n ? { ...st, step: next, deadline: deadlineFor(next, now) } : { ...st, phase: "done", deadline: 0 };
   return { state, fill };
 }
 

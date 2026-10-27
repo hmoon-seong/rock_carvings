@@ -1,6 +1,7 @@
-// 이어 그리기 screens: join → lobby → (write → draw → guess …) → reveal → done.
-// One story per game, passed from seat to seat: a player plays one step and waits ("wait",
-// seeing only whose turn it is); a watcher (관전) follows the story step by step ("watch").
+// 이어 그리기 screens: join → lobby → (write → draw → guess …) → done (each player's album).
+// Everyone plays every step at once (one chain each, passed one seat on per step); a player who
+// has sent their answer waits for the others ("wait"). A watcher (관전) follows the chains as
+// they grow ("watch"). At the end every player opens the album of the chain they started.
 // The server decides which step the room is at (src/relay/api.ts polls it); this controller
 // turns each room view into a screen. The rock itself (drawing, carving, camera, the shared
 // wall) belongs to main.ts and is reached through RelayHost.
@@ -8,7 +9,9 @@
 import { chainStrip, RELAY, stepKind, type RelayDrawing, type StepKind } from "../../shared/relay";
 import type { CarvingDraft, Rect } from "../../shared/wall";
 import { dialog, toast } from "../ui/notice";
+import type { Album } from "./album";
 import { RelayApi, RoomError, saveName, savedName, type ChainEntry, type RoomView } from "./api";
+import type { Tutorial } from "./tutorial";
 
 export interface RelayHost {
   /** Shows the relay screens over an empty rock; free drawing and the challenge are off. */
@@ -23,6 +26,8 @@ export interface RelayHost {
   stopDrawing(): RelayDrawing;
   /** Carves someone's drawing at the current spot and frames it (pecked mark by mark if `timelapse`). */
   showDrawing(d: RelayDrawing | null, timelapse: boolean): Promise<void>;
+  /** Carves a drawing (null: bare rock) at the current spot and returns a w × h photo of it under the light. */
+  photo(d: RelayDrawing | null, w: number, h: number): Promise<HTMLCanvasElement>;
   /** A free spot on the shared wall for a chain strip; null if the wall is full. */
   stripSpot(strip: RelayDrawing): Promise<Rect | null>;
   /** The strip as a flat silhouette PNG (for moderation). */
@@ -35,7 +40,7 @@ export interface RelayHost {
   nearSite(): Promise<boolean>;
 }
 
-type Screen = "join" | "lobby" | StepKind | "wait" | "watch" | "reveal" | "done";
+type Screen = "join" | "lobby" | StepKind | "wait" | "watch" | "done";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -51,8 +56,6 @@ const EXAMPLES = [
   "배를 탄 사람들이 노를 저어요", "춤추는 거북", "물새가 고래 위를 날아요", "멧돼지가 낮잠을 자요",
 ];
 const TIMER_LABEL: Record<StepKind, string> = { write: "이야기", draw: "새기기", guess: "맞히기" };
-/** What the player whose turn it is is doing. */
-const DOING: Record<StepKind, string> = { write: "이야기를 짓는 중", draw: "새기는 중", guess: "맞히는 중" };
 const JOIN_ERRORS: Record<string, string> = {
   nope: "그런 방이 없어요. 코드를 확인해 주세요.",
   started: "이미 시작한 방이에요.",
@@ -60,6 +63,13 @@ const JOIN_ERRORS: Record<string, string> = {
   limited: "잠시 후에 다시 시도해 주세요.",
   noserver: "이 주소에서는 방을 만들 수 없어요 (서버 없음).",
 };
+
+/** Longest possible game with n players (minutes, rounded up): every step to its deadline. */
+export function gameMinutes(n: number): number {
+  let s = 0;
+  for (let step = 0; step < n; step++) s += RELAY.seconds[stepKind(step)] + RELAY.leadSeconds;
+  return Math.ceil(s / 60);
+}
 
 export class Relay {
   /** The relay screens are showing. */
@@ -77,14 +87,20 @@ export class Relay {
   /** Step whose answer is being sent (no second send meanwhile). */
   private sending = "";
   private inputs = new Map<string, { text?: string | null; drawing?: RelayDrawing | null; from: string }>();
-  /** The story of each game (key: game), as far as it was fetched. */
-  private stories = new Map<number, ChainEntry[]>();
-  private shownRv = "";
+  /** Chains as far as fetched (key: game:chain). */
+  private chains = new Map<string, ChainEntry[]>();
+  /** Watchers: the chain being followed, and what of it the rock shows. */
+  private watchChain = 0;
+  private watchShown = "";
   private queued = false;
   private running: Promise<void> = Promise.resolve();
   private timerRaf = 0;
   private qrFor = "";
   private carving = false;
+  /** Loaded on first use (not part of the first page load). */
+  private album: Album | null = null;
+  private albumP: Promise<Album> | null = null;
+  private tutorialP: Promise<Tutorial> | null = null;
 
   constructor(private host: RelayHost) {
     this.api.onView = (v) => this.render(v);
@@ -94,6 +110,20 @@ export class Relay {
     };
     this.api.onTrouble = (bad) => bad && toast("연결이 불안정해요. 계속 다시 시도하는 중…", 3000);
     this.wire();
+  }
+
+  private getAlbum(): Promise<Album> {
+    return (this.albumP ??= import("./album").then(({ Album }) => {
+      this.album = new Album({
+        photo: (d, w, h) => this.host.photo(d, w, h),
+        load: (chain) => this.loadChain(this.v!.state.game, chain, this.v!.state.n),
+      });
+      return this.album;
+    }));
+  }
+
+  private tutorial(): Promise<Tutorial> {
+    return (this.tutorialP ??= import("./tutorial").then(({ Tutorial }) => new Tutorial()));
   }
 
   // ---------------------------------------------------------------- open / close
@@ -122,6 +152,7 @@ export class Relay {
     }
     this.screen = "join";
     this.show("join");
+    void this.tutorial().then((t) => t.firstTime());
   }
 
   /** Startup: a ?room= link or a game in progress reopens the relay screens. */
@@ -136,10 +167,11 @@ export class Relay {
     this.drawing = false;
     this.v = null;
     this.screen = null;
-    this.stepKey = this.sending = this.shownRv = "";
+    this.stepKey = this.sending = this.watchShown = "";
     this.stopTimer();
     this.card(null);
     this.prompt(null);
+    this.album?.close();
     $("rlQr").classList.remove("show");
     delete document.body.dataset.rl;
     this.onActive();
@@ -148,9 +180,8 @@ export class Relay {
 
   /** 나가기 (with a confirmation while playing). */
   async quit() {
-    const v = this.v, me = v && this.me(v);
-    const myTurnAhead = v && me && v.state.phase === "play" && !me.watch && me.seat >= v.state.step;
-    if (myTurnAhead) {
+    const v = this.v;
+    if (v && v.state.phase === "play" && !this.me(v)?.watch) {
       const go = await dialog("게임에서 나갈까요?", "내 차례는 자동으로 채워져요.\n같은 방에 다시 들어올 수는 없어요.", [
         { label: "계속하기", value: false },
         { label: "나가기", value: true, primary: true },
@@ -163,7 +194,9 @@ export class Relay {
 
   /** Back from the shared wall. */
   resume() {
-    if (this.active) this.sync();
+    if (!this.active) return;
+    if (this.screen === "done") this.album?.show();
+    this.sync();
   }
 
   // ---------------------------------------------------------------- views
@@ -172,7 +205,7 @@ export class Relay {
     if (!this.active) return;
     const prev = this.v;
     this.v = v;
-    if (prev && prev.state.game !== v.state.game) this.stories.clear();
+    if (prev && prev.state.game !== v.state.game) this.chains.clear();
     if (v.task?.input && (v.task.input.text != null || v.task.input.drawing != null)) {
       this.inputs.set(v.task.input.key, v.task.input);
       this.api.have = v.task.input.key;
@@ -196,12 +229,12 @@ export class Relay {
   }
 
   private me = (v: RoomView) => v.players.find((p) => p.id === v.me);
-  private writerName = (v: RoomView) => v.players.find((p) => p.seat === 0 && !p.watch)?.name ?? "누군가";
+  /** The player who started `chain` (seat s starts chain s). */
+  private ownerName = (v: RoomView, chain: number) => v.players.find((p) => p.seat === chain && !p.watch)?.name ?? `${chain + 1}번`;
 
   private screenFor(v: RoomView): Screen {
     const st = v.state;
     if (st.phase === "lobby") return "lobby";
-    if (st.phase === "reveal") return "reveal";
     if (st.phase === "done") return "done";
     if (this.me(v)?.watch) return "watch";
     const t = v.task;
@@ -241,6 +274,7 @@ export class Relay {
     }
     this.card(null);
     this.prompt(null);
+    if (screen !== "done") this.album?.close();
     $("rlQr").classList.toggle("show", screen === "lobby");
     const timed = screen === "write" || screen === "draw" || screen === "guess" || screen === "watch" || (screen === "wait" && v.state.phase === "play");
     if (timed) this.startTimer();
@@ -254,7 +288,7 @@ export class Relay {
     }
     if (screen === "write") {
       this.show("write");
-      this.askText("이번 판의 이야기는 내가 지어요!", "다음 사람이 이 문장을 새김으로 그리고, 차례차례 이어 가요", EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)]);
+      this.askText("바위에 새길 이야기를 지어 주세요", "옆 사람이 이 문장을 그림으로 새겨요", EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)]);
       await this.host.freshRock();
       return;
     }
@@ -267,7 +301,7 @@ export class Relay {
       await sleep(600);
       if (this.v !== v && this.screenFor(this.v!) !== "draw") return;
       this.card(null);
-      this.prompt(input.text ?? "", "이 이야기를 바위에 새겨 보세요");
+      this.prompt(input.text ?? "", v.state.step === 1 ? "글자 없이 그림으로만 새겨 주세요" : "이 이야기를 바위에 새겨 보세요");
       this.drawing = true;
       this.host.startDrawing(true);
       return;
@@ -278,7 +312,7 @@ export class Relay {
       this.show("guess");
       this.askText(
         empty ? "빈 바위예요! 무엇이었을지 상상해 보세요" : "이 새김은 무엇일까요?",
-        input.from ? `${input.from} 님이 새겼어요` : "",
+        input.from ? `${input.from} 님이 새겼어요${v.state.step === 2 ? " · 보이는 대로 적으면 돼요" : ""}` : "",
         "보이는 대로 적어 보세요",
       );
       await this.host.showDrawing(empty ? null : input.drawing!, false);
@@ -290,18 +324,24 @@ export class Relay {
     }
     if (screen === "watch") {
       this.show("watch");
-      await this.watchStep(v);
-      return;
-    }
-    if (screen === "reveal") {
-      this.show("reveal");
-      this.shownRv = "";
+      if (from !== "watch") this.watchChain = 0;
+      this.watchShown = "";
+      this.renderWatchTabs(v);
+      if (v.state.step === 0) await this.host.freshRock();
       return;
     }
     if (screen === "done") {
       this.show("done");
-      $("rlAlbum").replaceChildren();
-      await this.showAlbum(v);
+      const me = this.me(v);
+      const mine = me && !me.watch && me.seat >= 0 ? me.seat : null;
+      const album = await this.getAlbum();
+      if (this.screen !== "done") return;
+      album.open({
+        game: v.state.game,
+        n: v.state.n,
+        owners: Array.from({ length: v.state.n }, (_, c) => this.ownerName(v, c)),
+        mine,
+      });
     }
   }
 
@@ -320,42 +360,33 @@ export class Relay {
       const role = $<HTMLButtonElement>("rlRole");
       role.hidden = isHost;
       role.textContent = watching ? "참가하기" : "관전하기";
+      const n = Math.max(here, RELAY.minPlayers);
+      $("rlLobbyInfo").textContent = `${n}명이면 이야기 ${n}개 · 한 판 최대 ${gameMinutes(n)}분`;
       $("rlLobbyNote").textContent = isHost
         ? here < RELAY.minPlayers ? `${RELAY.minPlayers}명부터 시작할 수 있어요` : "모두 모였으면 시작!"
         : watching ? "관전 중이에요. 참가하기를 누르면 함께 그려요" : "방장이 시작하기를 기다리는 중…";
     }
     if (screen === "wait" && st.phase === "play") {
-      const turn = v.players.find((p) => p.seat === st.step && !p.watch);
-      const mine = this.me(v)?.seat ?? -1;
-      $("rlWaitTitle").textContent = turn?.id === v.me ? "보냈어요!" : `${turn?.name ?? "누군가"} 님이 ${DOING[stepKind(st.step)]}…`;
-      $("rlWaitCount").textContent =
-        mine > st.step ? `내 차례까지 ${mine - st.step}명 남았어요` : "내 차례는 끝났어요. 다 같이 돌려 볼 때까지 기다려요";
+      const seated = v.players.filter((p) => p.seat >= 0 && !p.watch);
+      $("rlWaitCount").textContent = `${seated.filter((p) => p.done).length}/${st.n}`;
     }
-    if (screen === "watch") {
-      const turn = v.players.find((p) => p.seat === st.step && !p.watch);
-      $("rlWatchTitle").textContent = `${turn?.name ?? "누군가"} 님이 ${DOING[stepKind(st.step)]}…`;
-      $("rlWatchPos").textContent = `관전 중 · ${st.step + 1}/${st.n}번째 차례`;
-    }
-    if (screen === "reveal") await this.updateReveal(v);
+    if (screen === "watch") await this.updateWatch(v);
     if (screen === "done") this.updateDone(v);
   }
 
   private renderPlayers() {
     const v = this.v!;
-    const st = v.state;
-    const playing = st.phase === "play";
+    const playing = v.state.phase === "play";
     const item = (p: RoomView["players"][number]) => {
       const li = el("li", "", p.name);
       li.classList.toggle("me", p.id === v.me);
       li.classList.toggle("away", p.away);
       li.classList.toggle("done", playing && p.done);
-      li.classList.toggle("now", playing && !p.watch && p.seat === st.step);
-      if (p.id === st.host) li.append(el("small", "", "방장"));
+      if (p.id === v.state.host) li.append(el("small", "", "방장"));
       else if (p.watch) li.append(el("small", "", "관전"));
       return li;
     };
     $("rlPlayers").replaceChildren(...v.players.map(item));
-    // The order of turns (the server sorts players by seat).
     $("rlWaitPlayers").replaceChildren(...v.players.filter((p) => p.seat >= 0 && !p.watch).map(item));
   }
 
@@ -450,12 +481,12 @@ export class Relay {
       const total = (RELAY.seconds[kind] + RELAY.leadSeconds) * 1000;
       const left = Math.max(0, v.state.deadline - this.api.now());
       const shown = Math.min(left, total - RELAY.leadSeconds * 1000);
+      const mine = this.screen !== "wait" && this.screen !== "watch";
       label.textContent = this.screen === "wait" ? "기다리는 중" : this.screen === "watch" ? "관전 중" : TIMER_LABEL[kind];
       num.textContent = String(Math.ceil(shown / 1000));
       bar.style.transform = `scaleX(${Math.min(1, left / total)})`;
-      const mine = this.screen !== "wait" && this.screen !== "watch";
       timer.classList.toggle("warn", mine && left <= 5000);
-      if (left <= 0 && (this.screen === "write" || this.screen === "draw" || this.screen === "guess")) void this.submit(true);
+      if (left <= 0 && mine) void this.submit(true);
       if (left <= 0 && !mine) this.api.pollNow();
       this.timerRaf = window.setTimeout(tick, left <= 0 ? 1000 : 200);
     };
@@ -469,66 +500,55 @@ export class Relay {
     document.body.classList.remove("rl-timer");
   }
 
-  // ---------------------------------------------------------------- the story: watch / reveal / album
+  // ---------------------------------------------------------------- chains: watch
 
-  /** The story of `game` with at least `need` entries (fetched again when shorter). */
-  private async loadStory(game: number, need: number): Promise<ChainEntry[]> {
-    let list = this.stories.get(game);
+  /** Chain `chain` of `game` with at least `need` entries (fetched again when shorter). */
+  private async loadChain(game: number, chain: number, need: number): Promise<ChainEntry[]> {
+    const key = `${game}:${chain}`;
+    let list = this.chains.get(key);
     if (!list || list.length < need) {
-      list = await this.api.chain();
-      this.stories.set(game, list);
+      list = await this.api.chain(chain);
+      this.chains.set(key, list);
     }
     return list;
   }
 
-  /** Watchers: a new step began, so the previous one is in; show it on the rock. */
-  private async watchStep(v: RoomView) {
+  private renderWatchTabs(v: RoomView) {
+    const tabs = $("rlWatchTabs");
+    tabs.replaceChildren(
+      ...Array.from({ length: v.state.n }, (_, c) => {
+        const b = el("button", "", `${this.ownerName(v, c)} 님`);
+        b.dataset.chain = String(c);
+        b.setAttribute("aria-pressed", String(c === this.watchChain));
+        return b;
+      }),
+    );
+  }
+
+  /** Watchers: the followed chain's last finished step on the rock, and the chain so far. */
+  private async updateWatch(v: RoomView) {
     const st = v.state;
-    const ol = $("rlWatchFeed");
+    const chain = this.watchChain;
+    $("rlWatchTitle").textContent = `${this.ownerName(v, chain)} 님의 이야기`;
+    $("rlWatchPos").textContent = `관전 중 · ${st.step + 1}/${st.n}단계 · ${stepKind(st.step) === "draw" ? "새기는 중" : stepKind(st.step) === "guess" ? "맞히는 중" : "이야기 짓는 중"}`;
+    const key = `${st.game}:${chain}:${st.step}`;
+    if (this.watchShown === key) return;
+    this.watchShown = key;
     if (st.step === 0) {
-      ol.replaceChildren();
-      await this.host.freshRock();
+      $("rlWatchFeed").replaceChildren();
       return;
     }
     let entries: ChainEntry[];
     try {
-      entries = await this.loadStory(st.game, st.step);
+      entries = await this.loadChain(st.game, chain, st.step);
     } catch {
-      return toast("불러오지 못했어요");
+      this.watchShown = ""; // the next poll tries again
+      return;
     }
     const done = entries.filter((e) => e.step < st.step);
-    this.feed(ol, done, st.step - 1);
+    this.feed($("rlWatchFeed"), done, st.step - 1);
     const last = done[done.length - 1];
-    if (last && this.v?.state.step === st.step) await this.showEntry(last, true);
-  }
-
-  private async updateReveal(v: RoomView) {
-    const st = v.state;
-    const step = st.rv;
-    const isHost = st.host === v.me;
-    const next = $<HTMLButtonElement>("rlNext");
-    next.hidden = !isHost;
-    next.textContent = step < st.n - 1 ? "다음" : "끝";
-    $("rlRevTitle").textContent = `${this.writerName(v)} 님의 이야기`;
-    $("rlRevPos").textContent = `${step + 1}/${st.n}`;
-    $("rlRevNote").textContent = isHost ? "" : "방장이 넘겨요";
-
-    const key = `${st.game}:${st.rv}`;
-    if (this.shownRv === key) return;
-    next.disabled = true;
-    let entries: ChainEntry[];
-    try {
-      entries = await this.loadStory(st.game, step + 1);
-    } catch {
-      next.disabled = false;
-      return; // the next poll tries again
-    }
-    const e = entries.find((x) => x.step === step);
-    this.shownRv = key;
-    this.feed($("rlFeed"), entries.filter((x) => x.step <= step), step);
-    if (step === 0) await this.host.freshRock();
-    if (e) await this.showEntry(e, true);
-    if (this.v?.state.rv === st.rv) next.disabled = false;
+    if (last && this.watchShown === key) await this.showEntry(last, true);
   }
 
   private async showEntry(e: ChainEntry, timelapse: boolean) {
@@ -542,98 +562,79 @@ export class Relay {
     }
   }
 
-  private feed(ol: HTMLElement, entries: ChainEntry[], now: number, clickable = false) {
+  private feed(ol: HTMLElement, entries: ChainEntry[], now: number) {
     ol.replaceChildren(
-      ...entries.map((e, i) => {
+      ...entries.map((e) => {
         const li = el("li", e.drawing ? "draw" : "");
         li.append(el("span", "", e.drawing ? (e.drawing.strokes.length ? "새김" : "(빈 바위)") : `“${e.text ?? ""}”`), el("small", "", e.name || "자동"));
         li.classList.toggle("now", e.step === now);
-        if (clickable) li.dataset.i = String(i);
         return li;
       }),
     );
     ol.lastElementChild?.scrollIntoView({ block: "nearest" });
   }
 
-  // ---------------------------------------------------------------- done: album + the shared wall
+  // ---------------------------------------------------------------- done: albums + the shared wall
 
   private updateDone(v: RoomView) {
     const st = v.state;
     const isHost = st.host === v.me;
-    $("rlDoneTitle").textContent = `${this.writerName(v)} 님의 이야기, 끝!`;
-    const mark = st.carved[0];
-    const placed = Array.isArray(mark);
+    const marks = Object.values(st.carved);
+    const placed = marks.filter((m) => Array.isArray(m)).length;
+    const left = st.n - marks.length;
     const note = $("rlCarveNote");
     if (this.carving) note.textContent = "벽에 새기는 중…";
-    else if (!mark) note.textContent = isHost ? "줄을 눌러 다시 보거나, 모두의 벽에 남겨 보세요." : "줄을 눌러 다시 볼 수 있어요.";
-    else note.textContent = placed ? "모두의 벽에 남겼어요" : mark === "empty" ? "새김이 없어서 벽에 남기지 않았어요" : "벽에 남기지 못했어요";
+    else if (marks.length) note.textContent = `모두의 벽에 ${placed}개를 남겼어요${marks.length - placed ? ` · ${marks.length - placed}개는 남기지 못했어요` : ""}`;
+    else note.textContent = "위의 탭으로 다른 사람 이야기도 볼 수 있어요";
     const carve = $<HTMLButtonElement>("rlCarve");
-    carve.hidden = !isHost || !!mark;
+    carve.hidden = !isHost || left === 0;
     carve.disabled = this.carving;
-    $("rlWall").hidden = !placed;
+    $("rlWall").hidden = placed === 0;
     $("rlAgain").hidden = !isHost;
   }
 
-  /** The whole story in the album; the rock shows its last drawing with the first text over it. */
-  private async showAlbum(v: RoomView) {
-    const entries = await this.loadStory(v.state.game, v.state.n).catch(() => null);
-    if (!entries) return toast("불러오지 못했어요");
-    if (this.v?.state.game !== v.state.game || this.screen !== "done") return;
-    this.feed($("rlAlbum"), entries, -1, true);
-    const lastDrawing = [...entries].reverse().find((e) => e.drawing?.strokes.length);
-    await this.host.showDrawing(lastDrawing?.drawing ?? null, false);
-    const first = entries[0];
-    if (first) this.card(`${first.name || "누군가"} 님의 이야기`, first.text ?? "", "");
-  }
-
-  private async pickItem(i: number) {
+  private async carveAll() {
     const v = this.v;
-    if (!v) return;
-    const e = this.stories.get(v.state.game)?.[i];
-    if (!e) return;
-    [...$("rlAlbum").children].forEach((li, k) => li.classList.toggle("picked", k === i));
-    await this.showEntry(e, false);
-  }
-
-  private async carveStory() {
-    const v = this.v;
-    if (!v || v.state.phase !== "done" || this.carving || v.state.carved[0]) return;
+    if (!v || v.state.phase !== "done" || this.carving) return;
     if (!(await this.host.nearSite())) return;
     this.carving = true;
     this.updateDone(v);
-    let full = false, ok = false, failed = false;
+    let full = false, failed = 0;
+    let first: Rect | null = null;
     try {
-      const entries = await this.loadStory(v.state.game, v.state.n);
-      const strip = chainStrip(entries.flatMap((e) => (e.drawing ? [e.drawing] : [])));
-      let rect: Rect = [0, 0, 0, 0], png = "";
-      if (strip) {
-        const spot = await this.host.stripSpot(strip);
-        if (!spot) full = true;
-        else {
+      for (let c = 0; c < v.state.n; c++) {
+        if (this.v!.state.carved[c]) continue;
+        const entries = await this.loadChain(v.state.game, c, v.state.n);
+        const strip = chainStrip(entries.flatMap((e) => (e.drawing ? [e.drawing] : [])));
+        let rect: Rect = [0, 0, 0, 0], png = "";
+        if (strip) {
+          const spot = await this.host.stripSpot(strip);
+          if (!spot) {
+            full = true;
+            break;
+          }
           rect = spot;
           png = this.host.stripPNG(strip) ?? "";
         }
-      }
-      if (!full) {
-        const res = await this.api.carve(rect, png).catch(() => ({ ok: false, reason: "error" }) as const);
+        const res = await this.api.carve(c, rect, png).catch(() => ({ ok: false, reason: "error" }) as const);
         if (res.ok && "draft" in res && res.mode === "mock" && res.draft) this.host.keepLocal(res.draft);
-        ok = res.ok;
-        failed = !res.ok && res.reason === "error";
+        if (res.ok) first ??= rect;
+        else if (res.reason === "error") failed++;
       }
     } catch {
-      failed = true;
+      failed++;
     } finally {
       this.carving = false;
     }
     await this.api.state().catch(() => {});
-    if (full) await dialog("벽이 가득 찼어요", "지금은 빈자리가 없어요.", [{ label: "확인", value: 0, primary: true }]);
-    else if (failed) toast("남기지 못했어요. 다시 눌러 주세요");
-    else if (ok) toast("모두의 벽에 새겼어요!");
+    if (full) await dialog("벽이 가득 찼어요", "지금은 빈자리가 없어요.\n남기지 못한 이야기도 있어요.", [{ label: "확인", value: 0, primary: true }]);
+    else if (failed) toast("일부를 남기지 못했어요. 다시 눌러 주세요");
+    else if (first) toast("모두의 벽에 새겼어요!");
   }
 
-  private placed(): Rect | undefined {
-    const m = this.v?.state.carved[0];
-    return Array.isArray(m) ? m : undefined;
+  private firstPlaced(): Rect | undefined {
+    const marks = Object.values(this.v?.state.carved ?? {});
+    return marks.find((m): m is Rect => Array.isArray(m));
   }
 
   // ---------------------------------------------------------------- overlays
@@ -693,7 +694,7 @@ export class Relay {
         else await this.api.join(code.value, n, how === "watch");
         note.textContent = "";
         this.inputs.clear();
-        this.stories.clear();
+        this.chains.clear();
         await this.api.state();
         this.api.start();
       } catch (err) {
@@ -717,7 +718,8 @@ export class Relay {
     $("rlWatch").addEventListener("click", () => enter("watch"));
     code.addEventListener("keydown", (e) => e.key === "Enter" && enter("join"));
     $("rlClose").addEventListener("click", () => this.close());
-    for (const id of ["rlLeave", "rlQuit1", "rlQuit2", "rlQuit3", "rlQuit4", "rlExit"]) $(id).addEventListener("click", () => this.quit());
+    for (const id of ["rlLeave", "rlQuit1", "rlQuit2", "rlQuit4", "rlExit"]) $(id).addEventListener("click", () => this.quit());
+    for (const id of ["rlRules", "rlRules2"]) $(id).addEventListener("click", () => void this.tutorial().then((t) => t.open()));
     $("rlRole").addEventListener("click", async () => {
       const v = this.v;
       if (!v) return;
@@ -762,23 +764,21 @@ export class Relay {
     text.addEventListener("keydown", (e) => e.key === "Enter" && !e.isComposing && this.submit(false));
     $("rlSend").addEventListener("click", () => this.submit(false));
 
-    $("rlNext").addEventListener("click", async () => {
+    $("rlWatchTabs").addEventListener("click", (e) => {
+      const c = (e.target as HTMLElement).closest<HTMLElement>("[data-chain]")?.dataset.chain;
       const v = this.v;
-      if (!v) return;
-      const b = $<HTMLButtonElement>("rlNext");
-      b.disabled = true;
-      await this.api.act("reveal", { rv: v.state.rv + 1 }).catch(() => (b.disabled = false));
+      if (c == null || !v) return;
+      this.watchChain = Number(c);
+      this.watchShown = "";
+      this.renderWatchTabs(v);
+      this.sync();
     });
-
-    $("rlAlbum").addEventListener("click", (e) => {
-      const i = (e.target as HTMLElement).closest<HTMLElement>("[data-i]")?.dataset.i;
-      if (i != null) void this.pickItem(Number(i));
-    });
-    $("rlCarve").addEventListener("click", () => this.carveStory());
+    $("rlSave").addEventListener("click", () => void this.album?.save());
+    $("rlCarve").addEventListener("click", () => this.carveAll());
     $("rlAgain").addEventListener("click", () => this.api.act("again").catch(() => toast("다시 시작하지 못했어요")));
     $("rlWall").addEventListener("click", () => {
-      this.card(null);
-      void this.host.showWall(this.placed());
+      this.album?.hide();
+      void this.host.showWall(this.firstPlaced());
     });
   }
 }

@@ -60,7 +60,6 @@ export class RelayApi {
   private polling = false;
   private inflight = false;
   private failures = 0;
-  private fast = false;
 
   constructor() {
     document.addEventListener("visibilitychange", () => {
@@ -112,7 +111,6 @@ export class RelayApi {
 
   private view(v: RoomView) {
     this.offset = v.now - Date.now();
-    this.fast = v.state.phase === "reveal";
     this.onView(v);
   }
 
@@ -127,19 +125,19 @@ export class RelayApi {
     }
   }
 
-  async act(action: "start" | "again" | "reveal" | "role", extra: Record<string, unknown> = {}) {
+  async act(action: "start" | "again" | "role", extra: Record<string, unknown> = {}) {
     this.view(await this.as<RoomView>(action, extra));
   }
 
-  /** The game's story so far (reveal / done; watchers also while playing). */
-  chain() {
-    return this.as<{ entries: ChainEntry[] }>("chain").then((r) => r.entries);
+  /** One chain so far (done: everyone; watchers also while playing). */
+  chain(chain: number) {
+    return this.as<{ entries: ChainEntry[] }>("chain", { chain }).then((r) => r.entries);
   }
 
-  carve(rect: [number, number, number, number], image: string) {
+  carve(chain: number, rect: [number, number, number, number], image: string) {
     const [x_mm, y_mm, w_mm, h_mm] = rect;
     return this.as<{ ok: boolean; reason?: string; mode?: string; draft?: import("../../shared/wall").CarvingDraft }>("carve", {
-      x_mm, y_mm, w_mm, h_mm, image,
+      chain, x_mm, y_mm, w_mm, h_mm, image,
     });
   }
 
@@ -186,6 +184,6 @@ export class RelayApi {
       if (++this.failures === 3) this.onTrouble(true);
     }
     this.inflight = false;
-    if (this.polling) this.timer = window.setTimeout(() => this.poll(), this.fast ? RELAY.revealPollMs : RELAY.pollMs);
+    if (this.polling) this.timer = window.setTimeout(() => this.poll(), RELAY.pollMs);
   }
 }

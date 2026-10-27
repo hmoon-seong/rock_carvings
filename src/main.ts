@@ -1069,6 +1069,20 @@ async function main() {
       await focusCarving();
       if (timelapse) await playTimelapse();
     },
+    photo: async (d, w, h) => {
+      // Sharper with the full-res wall (it loads on the first draw step, so it is usually there).
+      await Promise.race([requestFull(), sleep(6000)]);
+      let bbox: [number, number, number, number];
+      if (d && d.strokes.length) {
+        const x0 = spot.cx - d.w / 2, y0 = spot.cy - d.h / 2;
+        ink.load(fromWallStrokes(d.strokes).map((s) => ({ ...s, points: s.points.map((v, i) => v + (i % 2 ? y0 : x0)) })));
+        bbox = carveBBoxMM(60);
+      } else {
+        ink.reset();
+        bbox = [spot.cx - 300, spot.cy - 200, 600, 400];
+      }
+      return renderer.snapshot(shareCrop(bbox, meta.width_mm, meta.height_mm, w / h, 0, 300), w, h);
+    },
     stripSpot: async (strip) => {
       const preferred = { x_mm: Math.random() * (meta.width_mm - strip.w), y_mm: Math.random() * (meta.height_mm - strip.h), w_mm: strip.w, h_mm: strip.h };
       return (await findSpotsFor(preferred))[0] ?? null;

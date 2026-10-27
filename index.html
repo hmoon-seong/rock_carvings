@@ -43,6 +43,10 @@
           <p>방 코드 <b id="rlQrCode"></b></p>
         </div>
         <p id="rlPrompt" aria-live="polite"></p>
+        <section id="rlAlbumView" class="rl-album" hidden aria-label="이야기 앨범">
+          <div id="rlAlbumTabs" class="rl-chains"></div>
+          <ol id="rlAlbumList" class="al-list"></ol>
+        </section>
         <div id="countdown" aria-live="assertive"></div>
         <div id="timer" aria-live="polite">
           <span id="timerLabel"></span><b id="timerNum"></b>
@@ -144,7 +148,7 @@
         </div>
         <div class="tools relay-only">
           <div class="rl rl-join">
-            <p class="rl-title">이어 그리기<small>3–8명이 한 이야기를 차례로 이어 가요. 한 사람이 문장을 지으면 다음 사람은 새김으로, 그다음 사람은 다시 문장으로. 끝나면 모두의 벽에 남아요.</small></p>
+            <p class="rl-title">이어 그리기<small>3–8명이 각자 문장을 짓고, 옆 사람에게 넘기며 새김 → 문장 → 새김…으로 이어 가요. 끝나면 내 문장이 어떻게 변했는지 봐요.</small></p>
             <label class="share-msg">
               <input id="rlName" type="text" enterkeyhint="done" placeholder="내 이름" autocomplete="nickname" maxlength="10" />
               <small>이름</small>
@@ -156,7 +160,7 @@
               <span class="grow"></span>
               <button id="rlCreate" class="primary">방 만들기</button>
             </div>
-            <div class="row"><button id="rlClose" class="text">닫기</button><span id="rlJoinNote" class="rl-note"></span></div>
+            <div class="row"><button id="rlClose" class="text">닫기</button><span id="rlJoinNote" class="rl-note grow"></span><button id="rlRules" class="text">규칙 보기</button></div>
           </div>
           <div class="rl rl-lobby">
             <div class="row">
@@ -165,6 +169,7 @@
               <button id="rlInvite" class="pill">초대하기</button>
             </div>
             <ul id="rlPlayers" class="rl-players"></ul>
+            <div class="row"><span id="rlLobbyInfo" class="rl-note grow"></span><button id="rlRules2" class="text">규칙 보기</button></div>
             <div class="row">
               <button id="rlLeave" class="text">나가기</button>
               <span id="rlLobbyNote" class="rl-note grow"></span>
@@ -185,33 +190,25 @@
             </div>
           </div>
           <div class="rl rl-wait">
-            <p class="rl-title"><span id="rlWaitTitle">기다리는 중…</span><small id="rlWaitCount"></small></p>
+            <p class="rl-title">다른 사람을 기다리는 중… <small id="rlWaitCount"></small></p>
             <ul id="rlWaitPlayers" class="rl-players"></ul>
             <div class="row"><button id="rlQuit2" class="text">나가기</button></div>
           </div>
           <div class="rl rl-watch">
+            <div id="rlWatchTabs" class="rl-chains"></div>
             <p class="rl-title"><span id="rlWatchTitle"></span><small id="rlWatchPos"></small></p>
             <ol id="rlWatchFeed" class="rl-feed"></ol>
             <div class="row"><button id="rlQuit4" class="text">나가기</button></div>
           </div>
-          <div class="rl rl-reveal">
-            <p class="rl-title"><span id="rlRevTitle"></span><small id="rlRevPos"></small></p>
-            <ol id="rlFeed" class="rl-feed"></ol>
-            <div class="row">
-              <button id="rlQuit3" class="text">나가기</button>
-              <span id="rlRevNote" class="rl-note grow"></span>
-              <button id="rlNext" class="primary">다음</button>
-            </div>
-          </div>
           <div class="rl rl-done">
-            <p class="rl-title"><span id="rlDoneTitle">이야기 끝!</span><small id="rlCarveNote"></small></p>
-            <ol id="rlAlbum" class="rl-feed"></ol>
+            <p id="rlCarveNote" class="rl-note"></p>
+            <button id="rlSave" class="primary" disabled>사진 만드는 중…</button>
             <div class="row">
               <button id="rlExit" class="text">나가기</button>
               <span class="grow"></span>
               <button id="rlWall" class="pill">모두의 벽</button>
+              <button id="rlCarve" class="pill">벽에 남기기</button>
               <button id="rlAgain" class="pill">한 판 더</button>
-              <button id="rlCarve" class="primary">벽에 남기기</button>
             </div>
           </div>
         </div>

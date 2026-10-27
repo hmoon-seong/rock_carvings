@@ -363,7 +363,7 @@ body:not(.relay) .relay-only, .relay[data-rl="draw"] .relay-only, .mode-wall .re
 .rl { display: none; flex-direction: column; gap: 8px; }
 .relay[data-rl="join"] .rl-join, .relay[data-rl="lobby"] .rl-lobby,
 .relay[data-rl="write"] .rl-text, .relay[data-rl="guess"] .rl-text,
-.relay[data-rl="wait"] .rl-wait, .relay[data-rl="watch"] .rl-watch, .relay[data-rl="reveal"] .rl-reveal, .relay[data-rl="done"] .rl-done { display: flex; }
+.relay[data-rl="wait"] .rl-wait, .relay[data-rl="watch"] .rl-watch, .relay[data-rl="done"] .rl-done { display: flex; }
 .rl-title { margin: 0; font-weight: 600; font-size: 14px; display: flex; flex-direction: column; gap: 2px; word-break: keep-all; }
 .rl-title small { font-weight: 400; font-size: 12px; color: var(--muted); }
 .rl-lobby .rl-title { flex-direction: row; align-items: baseline; gap: 6px; }
@@ -381,8 +381,6 @@ body:not(.relay) .relay-only, .relay[data-rl="draw"] .relay-only, .mode-wall .re
 .rl-players li.away { opacity: 0.45; }
 .rl-players li.done { background: #ead7c8; }
 .rl-players li.done::before { content: "✓ "; color: var(--accent); font-weight: 700; }
-.rl-players li.now { background: var(--text); color: var(--panel); }
-.rl-players li.now small { color: inherit; opacity: 0.7; }
 .rl-players li small { color: var(--muted); margin-left: 4px; font-size: 11px; }
 .rl-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 84px; overflow-y: auto; overscroll-behavior: contain; }
 .rl-feed li { font-size: 12.5px; display: flex; align-items: baseline; gap: 6px; padding: 2px 0; }
@@ -392,7 +390,50 @@ body:not(.relay) .relay-only, .relay[data-rl="draw"] .relay-only, .mode-wall .re
 .rl-feed li.now { font-weight: 600; }
 .rl-feed li[data-i] { cursor: pointer; }
 .rl-feed li.picked { background: #e6dfd5; border-radius: 6px; padding: 2px 6px; margin: 0 -6px; }
+.rl-chains { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
+.rl-chains button { flex: none; background: #e6dfd5; font-size: 12px; padding: 6px 11px; }
+.rl-chains button[aria-pressed="true"] { background: var(--text); color: var(--panel); }
 .rl-done .row button { padding-left: 12px; padding-right: 12px; }
+.rl-done #rlSave { width: 100%; }
+
+/* 이어 그리기 album: the chain top to bottom over the rock */
+.rl-album {
+  position: absolute; inset: 0; z-index: 4; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--panel); padding: 0 16px 24px;
+}
+.rl-album[hidden], .mode-wall .rl-album, body:not(.relay) .rl-album { display: none; }
+.rl-album .rl-chains { position: sticky; top: 0; z-index: 1; background: var(--panel); margin: 0 -16px; padding: 12px 16px 10px; }
+.al-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.al-list > li:not(.al-head) + li::before { content: "↓"; display: block; text-align: center; color: var(--accent); font-weight: 700; margin: 6px 0; }
+.al-head { padding: 4px 0 12px; }
+.al-head h2 { margin: 0; font-size: 20px; word-break: keep-all; }
+.al-list small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.al-text p { margin: 0; background: #fbf8f4; border-radius: 14px; padding: 14px 16px; font-size: 18px; font-weight: 700; line-height: 1.4; word-break: keep-all; }
+.al-photo { aspect-ratio: 3 / 2; border-radius: 14px; overflow: hidden; background: #d9d0c4; display: grid; place-items: center; color: var(--muted); }
+.al-photo canvas { display: block; width: 100%; height: 100%; }
+.al-wait { color: var(--muted); padding: 32px 0; text-align: center; }
+
+/* 이어 그리기 how-to */
+.tut-box {
+  width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; overflow: hidden;
+  background: var(--panel); border-radius: 18px; padding: 16px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+.tut-view { overflow: hidden; }
+.tut-track { display: flex; transition: transform 0.3s ease; touch-action: pan-y; }
+.tut-card { flex: 0 0 100%; text-align: center; padding: 0 4px; }
+.tut-card svg { display: block; width: 100%; max-width: 260px; height: auto; margin: 0 auto 10px; }
+.tut-card h3 { margin: 0 0 6px; font-size: 17px; word-break: keep-all; }
+.tut-card p { margin: 0; min-height: 4.5em; color: var(--muted); font-size: 13.5px; line-height: 1.5; word-break: keep-all; }
+.tut-dots { display: flex; justify-content: center; gap: 6px; }
+.tut-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.tut-dots i.on { background: var(--accent); }
+.t-line { fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.t-fill { fill: #fff; }
+.t-thin { stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }
+.t-whale { fill: var(--accent); }
+.t-arrow { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 4; }
+.t-head { fill: var(--accent); }
+.t-q { font: 700 24px var(--font); fill: var(--accent); text-anchor: middle; }
 .rl-card { top: 40%; }
 .rl-card strong { font-size: 24px; color: var(--text); margin: 8px 0 6px; }
 .rl-qr { top: 46%; padding: 16px 18px 10px; width: auto; }

@@ -16,22 +16,11 @@
         <div id="progress" aria-hidden="true"></div>
         <div class="seg mode-seg" id="modeSeg" role="radiogroup" aria-label="모드">
           <button data-mode="free" role="radio">자유</button>
-          <button data-mode="challenge" role="radio">도전</button>
           <button data-mode="relay" role="radio">이어 그리기</button>
         </div>
         <button id="wallBtn" class="float-btn float-left">모두의 벽</button>
         <div id="marks" aria-hidden="true"></div>
         <div id="hl" aria-hidden="true"></div>
-        <div id="card" class="card" role="dialog" aria-label="제시어">
-          <small>제시어</small>
-          <strong id="cardLabel"></strong>
-          <p id="cardHint"></p>
-          <p class="card-time"><span id="cardTime"></span> 안에 그려 보세요</p>
-          <div class="card-actions">
-            <button id="cardSwap" class="text">다른 제시어</button>
-            <button id="cardStart" class="primary">시작</button>
-          </div>
-        </div>
         <div id="rlCard" class="card rl-card" role="status">
           <small id="rlCardLabel"></small>
           <strong id="rlCardText"></strong>
@@ -47,7 +36,6 @@
           <div id="rlAlbumTabs" class="rl-chains"></div>
           <ol id="rlAlbumList" class="al-list"></ol>
         </section>
-        <div id="countdown" aria-live="assertive"></div>
         <div id="timer" aria-live="polite">
           <span id="timerLabel"></span><b id="timerNum"></b>
           <button id="timerQuit" aria-label="그만두기">✕</button>
@@ -91,26 +79,6 @@
           </div>
           </div>
         </div>
-        <div class="tools result-only">
-          <div class="result-head">
-            <div class="dial-col">
-              <div id="dialHost2"></div>
-              <small>측광</small>
-            </div>
-            <div class="score"><b id="scoreNum">…</b><span>점</span></div>
-            <div class="verdict">
-              <p class="res-prompt">제시어 <b id="resPrompt"></b> <span id="mockBadge" class="badge" hidden>모의 채점</span></p>
-              <p id="resGuess"></p>
-              <p id="resComment"></p>
-            </div>
-          </div>
-          <div class="result-actions">
-            <button id="retry" class="pill">다시 도전</button>
-            <button id="nextPrompt" class="pill">다른 제시어</button>
-            <button id="shareRes" class="pill">공유하기</button>
-            <button id="postRes" class="primary">벽에 남기기</button>
-          </div>
-        </div>
         <div class="tools carve-only">
           <div class="carve-main">
           <div class="dial-col">
@@ -131,7 +99,6 @@
           </div>
           </div>
           <div class="carve-actions">
-            <button id="shareFree" class="pill">공유하기</button>
             <button id="postFree" class="primary">벽에 남기기</button>
           </div>
         </div>
@@ -226,27 +193,6 @@
           </div>
         </div>
       </footer>
-      <div id="share" class="overlay" hidden>
-        <div class="share-box" role="dialog" aria-label="공유하기">
-          <div class="share-preview"><img id="sharePreview" alt="공유 이미지 미리보기" /><span class="share-busy">만드는 중…</span></div>
-          <label class="share-msg">
-            <input id="shareMsg" type="text" enterkeyhint="done" placeholder="남기고 싶은 말 (선택)" autocomplete="off" />
-            <small id="shareCount">0/40</small>
-          </label>
-          <div class="row">
-            <div class="seg" id="shareSize" role="radiogroup" aria-label="크기">
-              <button data-size="story" role="radio">스토리 9:16</button>
-              <button data-size="square" role="radio">정사각 1:1</button>
-            </div>
-          </div>
-          <div class="row">
-            <button id="shareClose" class="text">닫기</button>
-            <span class="grow"></span>
-            <button id="shareSave" class="pill">저장</button>
-            <button id="shareGo" class="primary">공유하기</button>
-          </div>
-        </div>
-      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

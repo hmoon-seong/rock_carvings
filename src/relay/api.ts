@@ -3,7 +3,7 @@
 
 import { RELAY, type RelayDrawing } from "../../shared/relay";
 import type { ChainEntry, RoomView } from "../../server/room";
-import { API_BASE } from "../challenge/score";
+import { API_BASE } from "../api";
 
 export type { ChainEntry, RoomView };
 

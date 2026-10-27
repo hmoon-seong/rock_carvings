@@ -1,17 +1,15 @@
 // Vite config. The /api/* serverless handlers also run inside `npm run dev` and `npm run preview`,
-// so the whole app (scoring proxy + shared wall) works locally without the Netlify CLI.
+// so the whole app (moderation proxy, shared wall, rooms) works locally without the Netlify CLI.
 // Server env vars (DASHSCOPE_API_KEY, SUPABASE_*) come from .env.local / the shell and never
 // reach the client bundle (Vite only exposes VITE_* variables to client code).
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { defineConfig, loadEnv, type Connect, type Plugin } from "vite";
-import { handleScore } from "./server/score.ts";
 import { handleRoom } from "./server/room.ts";
 import { handleWall } from "./server/wall.ts";
 import type { Env } from "./server/http.ts";
 
 const ROUTES: Record<string, (req: Request, env: Env, ip?: string) => Promise<Response>> = {
-  "/api/score": handleScore,
   "/api/wall": handleWall,
   "/api/room": handleRoom,
 };

@@ -1,9 +1,7 @@
-// Qwen (DashScope) calls of the proxy: scoring a drawing and moderating a wall post.
+// Qwen (DashScope) calls of the proxy: moderating a wall post and in-game text.
 // The API key is read from the server environment only (DASHSCOPE_API_KEY).
 // Uses DashScope's OpenAI-compatible chat API with plain fetch (no SDK).
 
-import { motifById } from "../shared/challenge.ts";
-import { parseScore, stripFences, type ScoreResult } from "../shared/score.ts";
 import type { Env } from "./http.ts";
 
 /** International endpoint by default; set DASHSCOPE_BASE_URL for the mainland China one
@@ -17,23 +15,12 @@ export interface QwenConfig {
   model: string;
 }
 
-/** Null without a key (the handlers then use the mock / word-list fallback). */
+/** Null without a key (the handlers then use the word-list fallback). */
 export function qwenConfig(env: Env): QwenConfig | null {
   const apiKey = env.DASHSCOPE_API_KEY;
   if (!apiKey) return null;
   return { apiKey, baseUrl: (env.DASHSCOPE_BASE_URL || BASE_URL).replace(/\/+$/, ""), model: env.QWEN_MODEL || MODEL };
 }
-
-const SCORE_SYSTEM = `You judge a drawing game at the Bangudae Petroglyphs (반구대 암각화) in Ulsan, Korea.
-Visitors draw a prehistoric motif in 30 seconds on a phone. You see their drawing as a flat dark silhouette on light paper, like a rubbing of a petroglyph. It will be carved into a rock wall.
-Judge kindly: it is a quick finger drawing by a tourist or a child. Simple, blocky, petroglyph-like shapes are fine.
-
-Reply with JSON only, no other text:
-{"match": <integer 0-100>, "guess": "<what it looks like, short Korean noun phrase, max 10 characters>", "comment": "<one playful, warm Korean sentence in 해요체, max 40 characters>", "flagged": <true|false>}
-
-- match: how recognizably the drawing shows the prompt. 0 = unrelated or empty, 50 = some features, 80+ = clearly recognizable. If there is no prompt, rate how clear and lively the figure is.
-- guess: your honest guess of what was drawn, as if you did not know the prompt.
-- flagged: true only if the drawing is obscene, sexual (e.g. genitals), hateful (e.g. a swastika), or contains offensive words or symbols. Otherwise false.`;
 
 const MODERATE_SYSTEM = `You moderate a public guestbook wall at a cultural heritage site in Korea, visited by families.
 You get a visitor's drawing (flat dark silhouette on light paper) and an optional short message.
@@ -41,6 +28,14 @@ Reply with JSON only, no other text:
 {"flagged": <true|false>, "message_flagged": <true|false>}
 - flagged: true only if the drawing is obscene, sexual (e.g. genitals), hateful (e.g. a swastika), or shows offensive words or symbols.
 - message_flagged: true if the message contains profanity, insults, sexual or hateful content, personal data (phone numbers, addresses), or advertising. Ordinary, silly or misspelled messages are fine.`;
+
+/** Removes ```json … ``` fences and any text around the outermost JSON object. */
+export function stripFences(text: string): string {
+  let t = text.trim().replace(/^```[a-zA-Z]*\s*/, "").replace(/\s*```$/, "");
+  const a = t.indexOf("{"), b = t.lastIndexOf("}");
+  if (a >= 0 && b > a) t = t.slice(a, b + 1);
+  return t;
+}
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
@@ -67,16 +62,6 @@ async function ask(cfg: QwenConfig, system: string, content: Part[], timeoutMs =
 }
 
 const image = (b64: string): Part => ({ type: "image_url", image_url: { url: `data:image/png;base64,${b64}` } });
-
-/** Throws on API errors or an unusable reply (the handler turns that into the neutral result). */
-export async function scoreDrawing(cfg: QwenConfig, pngB64: string, promptId?: string | null): Promise<ScoreResult> {
-  const m = motifById(promptId);
-  const task = m ? `Prompt: ${m.label} (${m.en}).` : "No prompt (free drawing).";
-  const text = await ask(cfg, SCORE_SYSTEM, [image(pngB64), { type: "text", text: task }]);
-  const r = parseScore(text);
-  if (!r) throw new Error(`unparseable reply: ${text.slice(0, 200)}`);
-  return r;
-}
 
 export interface Moderation {
   flagged: boolean;

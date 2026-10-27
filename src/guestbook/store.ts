@@ -4,7 +4,7 @@
 
 import { mockTextFlagged } from "../../shared/moderation";
 import { overlaps, type Carving, type CarvingDraft, type Rect } from "../../shared/wall";
-import { API_BASE } from "../challenge/score";
+import { API_BASE } from "../api";
 import { SAMPLES } from "./samples";
 
 export type PostResult = { ok: true; carving: Carving } | { ok: false; reason: "flagged" | "message" | "limited" | "invalid" | "error" };

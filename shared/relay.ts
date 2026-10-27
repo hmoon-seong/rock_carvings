@@ -11,7 +11,7 @@
 // grace period for the auto-submit to arrive) has passed, or everyone still missing is away,
 // filling in for absent players.
 
-import { MOTIFS } from "./challenge.ts";
+import { MOTIFS } from "./motifs.ts";
 import { fitPoints, LIMITS, validateStrokes, type Rect, type WallStroke } from "./wall.ts";
 
 export const RELAY = {
@@ -138,7 +138,7 @@ export function startGame(st: RoomState, players: readonly PlayerRow[], now: num
 /** What an absent player's entry becomes. */
 export function fillEntry(chain: number, step: number, rnd: () => number = Math.random): Entry {
   const kind = stepKind(step);
-  if (kind === "write") return { chain, step, author: "", text: MOTIFS[Math.floor(rnd() * MOTIFS.length)].label, auto: true };
+  if (kind === "write") return { chain, step, author: "", text: MOTIFS[Math.floor(rnd() * MOTIFS.length)], auto: true };
   if (kind === "draw") return { chain, step, author: "", drawing: { w: 0, h: 0, strokes: [] }, auto: true };
   return { chain, step, author: "", text: "???", auto: true };
 }

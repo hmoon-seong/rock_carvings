@@ -1,6 +1,6 @@
-// The share image's Korean font (Gowun Batang, Google Fonts), loaded only when a share image
-// is made so the first visit stays light. Google Fonts serves unicode-range subsets, so only
-// the glyphs of the message are downloaded. Falls back to the system's Korean font after 3 s.
+// The album photos' Korean font (Gowun Batang, Google Fonts), loaded only when an album is made
+// so the first visit stays light. Google Fonts serves unicode-range subsets, so only the
+// glyphs of the texts are downloaded. Falls back to the system's Korean font after 3 s.
 
 export const SHARE_FONT = `"Gowun Batang", "Noto Serif KR", "Apple SD Gothic Neo", "Noto Sans KR", serif`;
 

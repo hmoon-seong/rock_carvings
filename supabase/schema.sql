@@ -1,6 +1,6 @@
 -- 암각화몬 shared wall: one table. Run in the Supabase SQL editor (Dashboard → SQL → New query).
 -- Anonymous clients may read and insert rows only; no update, no delete.
--- The visitor's message is never stored (it is only moderated, and printed on their share image).
+-- The visitor's message is never stored (it is only moderated).
 
 create table if not exists public.carvings (
   id          uuid primary key default gen_random_uuid(),
@@ -15,7 +15,7 @@ create table if not exists public.carvings (
   src_h       real not null check (src_h > 0 and src_h <= 3000),
   -- [{ c: color index (-1 = eraser), s: brush mm, seed: int, p: [x0, y0, x1, y1, …] }]
   strokes     jsonb not null check (jsonb_typeof(strokes) = 'array' and pg_column_size(strokes) < 400000),
-  -- challenge mode (null in free mode)
+  -- the removed challenge mode (2026-10-27); new rows leave them null
   prompt      text check (prompt is null or char_length(prompt) <= 40),
   score       smallint check (score is null or score between 0 and 100),
   -- 이어 그리기 (relay game): the chain's drawings in a row; number of players (null otherwise)

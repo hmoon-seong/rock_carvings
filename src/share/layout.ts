@@ -1,16 +1,9 @@
-// Share image geometry: sizes, the wall crop around the carving, Korean line wrapping.
+// Photo geometry (이어 그리기 album): the wall crop around a carving, Korean line wrapping, dates.
 
 import type { Rect } from "../../shared/wall";
 
-export type ShareSize = "story" | "square";
-
-export const SHARE_SIZES: Record<ShareSize, { w: number; h: number; textFrac: number; label: string }> = {
-  story: { w: 1080, h: 1920, textFrac: 0.3, label: "스토리 9:16" },
-  square: { w: 1080, h: 1080, textFrac: 0.38, label: "정사각 1:1" },
-};
-
 /**
- * Wall crop (mm) for a share image of aspect w/h: the carving `bbox` fills about 80 % of the
+ * Wall crop (mm) for a photo of aspect w/h: the carving `bbox` fills about 80 % of the
  * picture above the text band (bottom `textFrac`), and the crop stays on the wall if it fits.
  */
 export function shareCrop(bbox: Rect, wallW: number, wallH: number, aspect: number, textFrac: number, minWidth = 450): Rect {

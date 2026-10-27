@@ -1,4 +1,4 @@
-# Netlify: static Vite build + three serverless functions (netlify/functions → /api/score, /api/wall, /api/room).
+# Netlify: static Vite build + two serverless functions (netlify/functions → /api/wall, /api/room).
 [build]
   command = "npm run build"
   publish = "dist"

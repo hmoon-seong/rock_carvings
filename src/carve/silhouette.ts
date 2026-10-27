@@ -1,5 +1,5 @@
 // The drawing as a flat silhouette PNG (the rubbing-view mask): dark figure on light paper,
-// cropped to the figure. This is what the scoring proxy and the moderation see.
+// cropped to the figure. This is what the moderation sees.
 
 /** Bounding box [x0, y0, x1, y1) of mask pixels > 0.5 over all masks, in px; null if empty. */
 export function maskBBox(masks: Float32Array[], w: number, h: number): [number, number, number, number] | null {

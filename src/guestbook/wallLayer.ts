@@ -5,8 +5,17 @@
 import type { Carving, Rect } from "../../shared/wall";
 import { carveHeight, heightToRgba, type CarveStyle } from "../carve/carve";
 import { rasterizeMasks } from "../draw/strokes";
-import { hashString } from "../../shared/score";
 import { fromWallStrokes } from "./serialize";
+
+/** FNV-1a hash of a string (a stable peck seed per carving). */
+function hashString(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
 
 export interface WallWindow {
   rect: Rect; // mm, aligned to the grid

@@ -32,7 +32,7 @@ export const SAMPLES: Carving[] = [
     stroke(line([80, 170], [30, 110], [15, 90]), 34, 0, 12),
     stroke(line([80, 170], [30, 230], [15, 250]), 34, 0, 13),
     stroke(line([470, 100], [490, 50], [470, 25]), 18, 0, 14),
-  ], { prompt: "whale", score: 88 }),
+  ]),
   // 사슴: body, neck + head, legs, antlers
   sample("sample-deer", 6352, 2885, 420, 440, [
     stroke(ellipseFill(190, 250, 120, 45, 30), 30, 0, 21),
@@ -44,7 +44,7 @@ export const SAMPLES: Carving[] = [
     stroke(line([340, 135], [310, 60], [280, 30]), 12, 0, 27),
     stroke(line([318, 85], [350, 40]), 12, 0, 28),
     stroke(line([360, 125], [380, 55], [410, 30]), 12, 0, 29),
-  ], { prompt: "deer", score: 74 }),
+  ]),
   // 사람: arms up, legs apart (purple)
   sample("sample-human", 5306, 2918, 260, 400, [
     stroke(ellipseFill(130, 60, 34, 34, 26), 26, 1, 31),
@@ -57,7 +57,7 @@ export const SAMPLES: Carving[] = [
     stroke(line([20, 140], [80, 210], [300, 235], [520, 210], [580, 140]), 34, 0, 41),
     stroke(line([60, 185], [540, 185]), 30, 0, 42),
     ...[130, 210, 290, 370, 450].map((x, i) => stroke(line([x, 175], [x + 5, 70]), 16, 0, 43 + i)),
-  ], { prompt: "boat", score: 62 }),
+  ]),
   // 거북: shell, head, four legs
   sample("sample-turtle", 5948, 2131, 360, 320, [
     stroke(ellipseFill(170, 160, 105, 90, 34), 34, 0, 51),
@@ -72,5 +72,5 @@ export const SAMPLES: Carving[] = [
     stroke(ellipseFill(150, 150, 95, 40, 26), 26, 1, 61),
     stroke(line([230, 140], [270, 70], [290, 40], [325, 45]), 18, 1, 62),
     stroke(line([60, 140], [20, 110]), 22, 1, 63),
-  ], { prompt: "waterbird", score: 81 }),
+  ]),
 ];

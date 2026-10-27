@@ -85,13 +85,11 @@ html, body {
 .draw-only .row button.primary { padding: 11px 16px; }
 .row { display: flex; align-items: center; gap: 6px; }
 .col { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.mode-draw .carve-only, .mode-draw .result-only,
+.mode-draw .carve-only,
 .mode-carve .draw-only,
-.mode-wall .draw-only, .mode-wall .carve-only, .mode-wall .result-only,
+.mode-wall .draw-only, .mode-wall .carve-only,
 body:not(.mode-wall) .wall-only, body:not(.mode-wall) .confirm-only,
 .mode-wall.posting .wall-only, .mode-wall:not(.posting) .confirm-only { display: none !important; }
-/* challenge: the result panel replaces the free-mode carve panel */
-body:not(.challenge) .result-only, .challenge .carve-only { display: none !important; }
 .grow { flex: 1; }
 
 button {
@@ -205,17 +203,14 @@ body:not(.mode-draw) .float-btn:not(.lab-btn) { display: none; }
 .timelapse #progress { opacity: 1; }
 .timelapse #panel .carve-only, .timelapse .zoom { opacity: 0.4; pointer-events: none; transition: opacity 0.3s; }
 
-/* ---------------------------------------------------------------- 도전 모드 */
+/* ---------------------------------------------------------------- 모드 · 카드 · 타이머 */
 .mode-seg {
   position: absolute; right: 12px; top: calc(8px + env(safe-area-inset-top));
   background: rgba(230, 223, 213, 0.92);
 }
 .mode-seg button { padding: 6px 11px; }
-body:not(.mode-draw) .mode-seg, .ch-running .mode-seg, .ch-running #brand { display: none; }
-.challenge #hint { display: none; }
+body:not(.mode-draw) .mode-seg { display: none; }
 #done { display: none; }
-.challenge #done { display: inline-block; }
-.challenge #carve { display: none; }
 
 .card {
   position: absolute; left: 50%; top: 46%; width: min(300px, calc(100% - 40px));
@@ -228,16 +223,6 @@ body:not(.mode-draw) .mode-seg, .ch-running .mode-seg, .ch-running #brand { disp
 .card small { color: var(--muted); font-size: 12px; letter-spacing: 0.1em; }
 .card strong { display: block; font-size: 34px; line-height: 1.25; margin: 6px 0 4px; color: var(--accent); word-break: keep-all; }
 .card p { margin: 0 0 4px; color: var(--muted); font-size: 13px; word-break: keep-all; }
-.card .card-time { margin-top: 10px; color: var(--text); }
-.card-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
-
-#countdown {
-  position: absolute; inset: 0; display: none; place-items: center; pointer-events: none;
-  font-size: 120px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums;
-}
-#countdown.show { display: grid; }
-#countdown.tick { animation: count 0.8s ease-out both; }
-@keyframes count { from { transform: scale(1.5); opacity: 0; } 25% { opacity: 1; } to { transform: scale(0.85); opacity: 0.15; } }
 
 #timer {
   position: absolute; left: 50%; top: calc(8px + env(safe-area-inset-top)); transform: translateX(-50%);
@@ -262,22 +247,8 @@ body:not(.mode-draw) .mode-seg, .ch-running .mode-seg, .ch-running #brand { disp
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
-/* result panel */
-.result-only { flex-direction: column; align-items: stretch; gap: 8px; }
-.result-head { display: flex; align-items: center; gap: 10px; }
-.score { display: flex; align-items: baseline; gap: 1px; flex: none; min-width: 64px; }
-.score b { font-size: 40px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--accent); }
-.score span { font-size: 13px; color: var(--muted); }
-.verdict { flex: 1; min-width: 0; }
-.verdict p { margin: 0; word-break: keep-all; }
-.res-prompt { font-size: 11px; color: var(--muted); }
-.res-prompt b { color: var(--text); font-weight: 600; }
-#resGuess { font-size: 15px; font-weight: 600; margin: 1px 0; }
-#resComment { font-size: 12px; color: var(--muted); }
 .badge { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 999px; background: #e6dfd5; color: var(--muted); margin-left: 4px; vertical-align: 1px; }
 .badge[hidden] { display: none; }
-.result-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.result-actions button { padding: 10px 2px; font-size: 12.5px; white-space: nowrap; }
 button.pill { background: #e6dfd5; }
 button.pill:active { background: #ddd4c8; }
 
@@ -292,30 +263,14 @@ button.pill:active { background: #ddd4c8; }
 .modal-box p { margin: 0 0 12px; color: var(--muted); word-break: keep-all; white-space: pre-line; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 
-/* free-mode carve panel: share / post row under the light + view controls */
+/* carve panel: 벽에 남기기 under the light + view controls */
 .carve-only { flex-direction: column; align-items: stretch; gap: 8px; }
 .carve-main { display: flex; align-items: center; gap: 10px; }
-.carve-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.carve-actions { display: grid; grid-template-columns: 1fr; gap: 6px; }
 .carve-actions button { padding: 10px 8px; }
-.timelapse #panel .carve-actions, .timelapse #panel .result-actions { opacity: 0.4; pointer-events: none; }
+.timelapse #panel .carve-actions { opacity: 0.4; pointer-events: none; }
 
-/* ---------------------------------------------------------------- share sheet */
-.overlay {
-  position: fixed; inset: 0; z-index: 15; display: flex; align-items: center; justify-content: center;
-  padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); background: rgba(20, 16, 12, 0.6);
-  opacity: 0; transition: opacity 0.2s;
-}
-.overlay.show { opacity: 1; }
-.overlay[hidden] { display: none; }
-.share-box {
-  width: 100%; max-width: 420px; max-height: 100%; display: flex; flex-direction: column; gap: 10px;
-  background: var(--panel); border-radius: 18px; padding: 14px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
-}
-.share-preview { position: relative; flex: 1 1 auto; min-height: 0; display: grid; place-items: center; }
-.share-preview img { display: block; max-width: 100%; max-height: min(56dvh, 520px); border-radius: 10px; background: #2a2521; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25); }
-.share-busy { position: absolute; inset: 0; display: grid; place-items: center; color: #eee6dc; opacity: 0; pointer-events: none; transition: opacity 0.2s; text-shadow: 0 1px 3px #000; }
-.overlay.busy .share-busy { opacity: 1; }
-.overlay.busy .share-preview img { filter: brightness(0.7); }
+/* text inputs with a counter (벽에 남기기, 이어 그리기) */
 .share-msg { position: relative; display: block; }
 .share-msg input {
   width: 100%; font: inherit; font-size: 16px; padding: 10px 52px 10px 14px; border-radius: 12px;
@@ -325,7 +280,7 @@ button.pill:active { background: #ddd4c8; }
 
 /* ---------------------------------------------------------------- 모두의 벽 */
 .float-left { right: auto; left: 12px; }
-body:not(.mode-draw) #wallBtn, .ch-running #wallBtn, .challenge #wallBtn { display: none; }
+body:not(.mode-draw) #wallBtn { display: none; }
 .mode-wall #ink, .mode-wall #trace { visibility: hidden; }
 #hl {
   position: absolute; display: none; pointer-events: none; border-radius: 4px;
@@ -355,7 +310,7 @@ body:not(.mode-draw) #wallBtn, .ch-running #wallBtn, .challenge #wallBtn { displ
 /* ---------------------------------------------------------------- 이어 그리기 */
 .mode-seg button { padding: 6px 10px; }
 body:not(.relay) .relay-only, .relay[data-rl="draw"] .relay-only, .mode-wall .relay-only,
-.relay .carve-only, .relay .result-only, .relay:not([data-rl="draw"]) .draw-only { display: none !important; }
+.relay .carve-only, .relay:not([data-rl="draw"]) .draw-only { display: none !important; }
 .relay .mode-seg, .relay #wallBtn, .relay #carve { display: none; }
 .relay #done { display: inline-block; }
 .rl-timer #brand { display: none; }

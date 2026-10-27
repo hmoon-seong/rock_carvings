@@ -11,5 +11,8 @@ export function mockTextFlagged(text: string): boolean {
   return BLOCK.some((w) => t.includes(w));
 }
 
-/** Max message length (share image + moderation only; never stored on the wall). */
+/** Max message length (moderation only; never stored on the wall). */
 export const MESSAGE_MAX = 40;
+
+/** Keeps at most `n` characters (code points), so a Korean IME can't overshoot maxlength. */
+export const clipMessage = (s: string, n = MESSAGE_MAX) => [...s].slice(0, n).join("");

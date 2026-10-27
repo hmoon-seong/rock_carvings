@@ -1,19 +1,16 @@
 // 암각화몬: draw straight on the scanned Bangudae wall; every stroke is carved into the rock
 // as soon as the finger lifts (실시간 새김), lit by a raking light.
 
-import { motifById, pickMotif, type Motif } from "../shared/challenge";
 import type { RelayDrawing } from "../shared/relay";
 import { fitPoints, LIMITS, rectOf, type Carving, type CarvingDraft, type Rect } from "../shared/wall";
-import type { ScoreResult } from "../shared/score";
-import { ChallengeUI, type TimerEnd } from "./challenge/challengeUI";
-import { guessLine, requestScore } from "./challenge/score";
-import { maskBBox, silhouettePNG } from "./challenge/silhouette";
+import { clipMessage } from "../shared/moderation";
 import { checkNearSite, GEO_TEXT, geoBypassed } from "./guestbook/geo";
 import { fromWallStrokes, toWallStrokes } from "./guestbook/serialize";
 import { findSpots } from "./guestbook/spot";
 import { Guestbook } from "./guestbook/store";
 import { layerResolution, WallLayer, windowCovers, windowFor, type WallLayerResult, type WallWindow } from "./guestbook/wallLayer";
 import { buildCarve } from "./carve/carve";
+import { maskBBox, silhouettePNG } from "./carve/silhouette";
 import { LiveCarve } from "./carve/liveCarve";
 import { writeShadow } from "./carve/shadow";
 import { tracingLabels } from "./carve/tracing";
@@ -22,8 +19,7 @@ import { Ink } from "./draw/ink";
 import { countStamps, rasterizeMasks, setBrushRoughness, type Stroke } from "./draw/strokes";
 import { setupDrawTools } from "./ui/drawTools";
 import { Lab } from "./ui/lab";
-import { koreanDate, SHARE_SIZES, shareCrop } from "./share/layout";
-import { clipMessage, ShareSheet } from "./share/shareSheet";
+import { koreanDate, shareCrop } from "./share/layout";
 import { Relay } from "./relay/relay";
 import { LightDial } from "./ui/lightDial";
 import { dialog, toast } from "./ui/notice";
@@ -43,10 +39,6 @@ type View = "rock" | "rubbing" | "tracing";
 let mode: Mode = "draw";
 let viewMode: View = "rock";
 let busy = false;
-/** Current challenge prompt; null = free drawing. */
-let motif: Motif | null = null;
-let challengeResult: ScoreResult | null = null;
-const challengeUI = new ChallengeUI();
 
 /** Smallest free spot (mm) a drawing starts at when the wall is crowded. */
 const SPOT_MM = 600;
@@ -61,9 +53,6 @@ const smooth = (t: number) => {
 };
 const nextFrame = () => new Promise((r) => requestAnimationFrame(r));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Result for a challenge that ended with nothing drawn (no scoring call). */
-const EMPTY_RESULT: ScoreResult = { match: 0, guess: "빈 바위", comment: "아직 아무것도 새기지 않았어요. 다시 도전해 볼까요?", flagged: false };
 
 function animate(ms: number, step: (t: number) => void): Promise<void> {
   return new Promise((resolve) => {
@@ -317,7 +306,7 @@ async function main() {
   const syncDraw = () => {
     hint.classList.toggle("hidden", ink.strokes.length > 0);
     carveBtn.disabled = ink.strokes.length === 0;
-    doneBtn.disabled = ink.strokes.length === 0 || !(challengeUI.running || relayDrawing());
+    doneBtn.disabled = ink.strokes.length === 0 || !relayDrawing();
     syncTools();
   };
   ink.onChange = syncDraw;
@@ -353,9 +342,9 @@ async function main() {
   // ---------------------------------------------------------------- light
   const dial = new LightDial(renderer.light);
   $("dialHost0").appendChild(dial.el);
-  // The dial moves with the panel: drawing, the free-mode carve panel, the challenge result, the wall.
+  // The dial moves with the panel: drawing, the carve panel, the wall.
   const placeDial = () => {
-    const host = $(mode === "draw" ? "dialHost0" : mode === "wall" ? "dialHost3" : motif ? "dialHost2" : "dialHost");
+    const host = $(mode === "draw" ? "dialHost0" : mode === "wall" ? "dialHost3" : "dialHost");
     if (dial.el.parentElement !== host) host.appendChild(dial.el);
   };
   // The carving's cast shadow depends on the light: recompute it at most once per frame.
@@ -442,7 +431,7 @@ async function main() {
     mode = m;
     document.body.classList.remove("mode-draw", "mode-carve", "mode-wall");
     document.body.classList.add(`mode-${m}`);
-    step.textContent = m === "wall" ? "모두의 벽" : relayActive() ? "이어 그리기" : motif ? "도전" : { draw: "그리기", carve: "새김 보기" }[m];
+    step.textContent = m === "wall" ? "모두의 벽" : relayActive() ? "이어 그리기" : { draw: "그리기", carve: "새김 보기" }[m];
     placeDial();
     camera.clamp(vw(), vh(), limits());
     applyCamera();
@@ -524,7 +513,7 @@ async function main() {
     return animateCamera([x + w / 2, y + h / 2, s], 600);
   };
 
-  // 완성: the drawing is already carved; show it with the light, views and sharing.
+  // 완성: the drawing is already carved; show it with the light, views and 벽에 남기기.
   const presentCarve = async () => {
     setView("rock", false);
     setMode("carve");
@@ -562,169 +551,35 @@ async function main() {
     busy = false;
   });
 
-  // ---------------------------------------------------------------- 도전 모드
-  // Prompt card (at a new free spot) → 3-2-1 → timer → drawing locks → silhouette to the
-  // scoring proxy → result.
+  // ---------------------------------------------------------------- 모드: 자유 | 이어 그리기
   const modeSeg = $("modeSeg");
   const syncModeSeg = () => {
-    const on = relayActive() ? "relay" : motif ? "challenge" : "free";
+    const on = relayActive() ? "relay" : "free";
     [...modeSeg.children].forEach((b) => b.setAttribute("aria-checked", String((b as HTMLElement).dataset.mode === on)));
-  };
-  const openCard = async (m: Motif) => {
-    motif = m;
-    document.body.classList.add("challenge");
-    ink.reset();
-    ink.enabled = false;
-    step.textContent = "도전";
-    syncModeSeg();
-    syncDraw();
-    await goToNewSpot(true);
-    if (motif === m) challengeUI.showCard(m);
-  };
-  const quitChallenge = () => {
-    challengeUI.hideCard();
-    challengeUI.finish("quit");
-    motif = null;
-    challengeResult = null;
-    document.body.classList.remove("challenge", "ch-running");
-    ink.enabled = true;
-    setMode(mode);
-    syncModeSeg();
-    syncDraw();
   };
   modeSeg.addEventListener("click", async (e) => {
     const want = (e.target as HTMLElement).dataset.mode;
-    if (busy || mode !== "draw" || !want) return;
-    if (want === "challenge" && !motif) {
-      busy = true;
-      if (ink.strokes.length > 0) {
-        const go = await dialog("도전 모드로 갈까요?", "도전은 새 빈자리에서 시작해요.\n지금 그리던 그림은 지워져요.", [
-          { label: "계속 그리기", value: false },
-          { label: "도전하기", value: true, primary: true },
-        ]);
-        if (!go) return void (busy = false);
-      }
-      await openCard(pickMotif());
-      busy = false;
-    }
-    if (want === "free" && motif) quitChallenge();
-    if (want === "relay" && !relayActive()) {
-      busy = true;
-      const go =
-        ink.strokes.length === 0 ||
-        (await dialog("이어 그리기로 갈까요?", "친구들과 문장을 새김으로, 새김을 문장으로 이어 가요.\n지금 그리던 그림은 지워져요.", [
-          { label: "계속 그리기", value: false },
-          { label: "이어 그리기", value: true, primary: true },
-        ]));
-      busy = false;
-      if (go) void relay.open();
-    }
+    if (busy || mode !== "draw" || want !== "relay" || relayActive()) return;
+    busy = true;
+    const go =
+      ink.strokes.length === 0 ||
+      (await dialog("이어 그리기로 갈까요?", "친구들과 문장을 새김으로, 새김을 문장으로 이어 가요.\n지금 그리던 그림은 지워져요.", [
+        { label: "계속 그리기", value: false },
+        { label: "이어 그리기", value: true, primary: true },
+      ]));
+    busy = false;
+    if (go) void relay.open();
   });
-  $("cardSwap").addEventListener("click", () => motif && challengeUI.showCard((motif = pickMotif(motif.id))));
-  $("cardStart").addEventListener("click", async () => {
-    if (busy || !motif) return;
-    busy = true;
-    challengeUI.hideCard();
-    document.body.classList.add("ch-running");
-    requestFull();
-    await challengeUI.countdown();
-    ink.enabled = true;
-    busy = false;
-    const timer = challengeUI.runTimer(motif);
-    syncDraw();
-    const why = await timer;
-    ink.cancel(); // a stroke still under the finger when time runs out is not carved
-    ink.enabled = false;
-    document.body.classList.remove("ch-running");
-    if (why !== "quit") finishChallenge(why);
-  });
-  doneBtn.addEventListener("click", () => (relayDrawing() ? relay.finishDrawing() : challengeUI.finish("done")));
-  $("timerQuit").addEventListener("click", () => (relayActive() ? relay.quit() : quitChallenge()));
-
-  const scoreNum = $("scoreNum"), resGuess = $("resGuess"), resComment = $("resComment");
-  const mockBadge = $("mockBadge");
-  const resultButtons = [...document.querySelectorAll<HTMLButtonElement>(".result-actions button")];
-  const postRes = $<HTMLButtonElement>("postRes");
-  const showScoring = (m: Motif) => {
-    $("resPrompt").textContent = m.label;
-    scoreNum.textContent = "…";
-    resGuess.textContent = "새김을 보고 채점하고 있어요…";
-    resComment.textContent = "";
-    mockBadge.hidden = true;
-    resultButtons.forEach((b) => (b.disabled = true));
-  };
-  const showResult = async (r: ScoreResult) => {
-    mockBadge.hidden = !(r.mock || r.fallback);
-    mockBadge.textContent = r.mock ? "모의 채점" : "임시 점수";
-    resultButtons.forEach((b) => (b.disabled = false));
-    postRes.disabled = r.flagged || ink.strokes.length === 0 || carvePosted;
-    if (r.flagged) {
-      scoreNum.textContent = "–";
-      resGuess.textContent = "이 그림은 점수를 드릴 수 없어요.";
-      resComment.textContent = "바위에는 모두가 함께 볼 수 있는 그림만 새길 수 있어요.";
-      return;
-    }
-    resGuess.textContent = guessLine(r);
-    resComment.textContent = r.comment;
-    const target = r.match ?? 0;
-    await animate(Math.min(1200, 300 + target * 10), (t) => (scoreNum.textContent = String(Math.round(target * smooth(t)))));
-  };
-
-  const finishChallenge = async (why: TimerEnd) => {
-    const m = motif!;
-    busy = true;
-    syncDraw();
-    if (why === "timeup") {
-      toast("그만! 시간이 다 됐어요", 1400);
-      await sleep(900);
-    }
-    const png = live.empty ? null : silhouettePNG(live.masks, live.w, live.h);
-    showScoring(m);
-    const scoring = png ? requestScore(png, m.id) : Promise.resolve(EMPTY_RESULT);
-    await presentCarve();
-    const r = await scoring;
-    if (motif !== m) return; // left the challenge meanwhile
-    challengeResult = r;
-    await showResult(r);
-    busy = false;
-  };
-
-  const restartChallenge = async (m: Motif) => {
-    if (busy) return;
-    busy = true;
-    await backToDraw();
-    await openCard(m);
-    busy = false;
-  };
-  $("retry").addEventListener("click", () => motif && restartChallenge(motif));
-  $("nextPrompt").addEventListener("click", () => motif && restartChallenge(pickMotif(motif.id)));
+  doneBtn.addEventListener("click", () => relayDrawing() && relay.finishDrawing());
+  $("timerQuit").addEventListener("click", () => relayActive() && relay.quit());
   syncModeSeg();
-
-  // ---------------------------------------------------------------- 공유하기 (share image)
-  const share = new ShareSheet();
-  const openShare = () => {
-    if (busy || live.empty) return;
-    const r = challengeResult;
-    const badge = motif ? `도전 · ${motif.label}${r && !r.flagged && r.match != null ? ` · ${r.match}점` : ""}` : undefined;
-    share.open({
-      badge,
-      rock: async (size) => {
-        await Promise.race([requestFull(), sleep(6000)]);
-        const { w, h, textFrac } = SHARE_SIZES[size];
-        const crop = shareCrop(carveBBoxMM(60), meta.width_mm, meta.height_mm, w / h, textFrac);
-        return renderer.snapshot(crop, w, h);
-      },
-    });
-  };
-  $("shareFree").addEventListener("click", openShare);
-  $("shareRes").addEventListener("click", openShare);
 
   // ---------------------------------------------------------------- 모두의 벽 (shared wall)
   // Every carving is rebuilt from its strokes into one carve layer covering a window around
   // the view, at a resolution that follows the zoom. Only carvings in the window are loaded.
   const hl = $("hl"), wallInfo = $("wallInfo"), wallCount = $("wallCount");
   const postOk = $<HTMLButtonElement>("postOk"), postMsg = $<HTMLInputElement>("postMsg");
-  const postButtons = [$<HTMLButtonElement>("postFree"), postRes];
+  const postBtn = $<HTMLButtonElement>("postFree");
   let wallFrom: Mode = "draw";
   let wallCam: [number, number, number] = [0, 0, 1];
   let wallWin: WallWindow | null = null;
@@ -741,10 +596,8 @@ async function main() {
   let carvePosted = false;
   function setPosted(v: boolean) {
     carvePosted = v;
-    for (const b of postButtons) {
-      b.textContent = v ? "벽에 남겼어요" : "벽에 남기기";
-      b.disabled = v || (b === postRes && (challengeResult?.flagged ?? false));
-    }
+    postBtn.textContent = v ? "벽에 남겼어요" : "벽에 남기기";
+    postBtn.disabled = v;
   }
 
   const relightWall = () => {
@@ -825,8 +678,6 @@ async function main() {
     if (guestbook.mine().has(c.id)) parts.push("내 새김");
     if (c.id.startsWith("sample-")) parts.push("예시 새김");
     else parts.push(koreanDate(new Date(c.created_at)));
-    const m = motifById(c.prompt);
-    if (m) parts.push(`도전 ${m.label}${c.score != null ? ` ${c.score}점` : ""}`);
     if (c.relay) parts.push(`이어 그리기 · ${c.relay}명`);
     wallInfo.textContent = parts.join(" · ");
   };
@@ -918,12 +769,7 @@ async function main() {
   const makeDraft = (): CarvingDraft | null => {
     const d = currentDrawing();
     if (!d) return null;
-    const r = challengeResult;
-    return {
-      x_mm: d.x0, y_mm: d.y0, w_mm: d.w, h_mm: d.h, src_w: d.w, src_h: d.h, strokes: d.strokes,
-      prompt: motif?.id ?? null,
-      score: motif && r && !r.flagged && !r.fallback ? r.match : null,
-    };
+    return { x_mm: d.x0, y_mm: d.y0, w_mm: d.w, h_mm: d.h, src_w: d.w, src_h: d.h, strokes: d.strokes, prompt: null, score: null };
   };
 
   /** Free spots for the draft: its own spot first; smaller sizes if the wall is crowded. */
@@ -954,7 +800,6 @@ async function main() {
 
   const startPost = async () => {
     if (busy || live.empty || carvePosted || ink.strokes.length === 0) return;
-    if (motif && challengeResult?.flagged) return;
     busy = true;
     try {
       if (!geoBypassed()) toast("위치를 확인하는 중…", 12_000);
@@ -991,7 +836,7 @@ async function main() {
       spots = found;
       spotIdx = 0;
       setPending();
-      postMsg.value = share.message;
+      postMsg.value = "";
       syncPostCount();
       document.body.classList.add("posting");
       await enterWall(spots[0]);
@@ -999,7 +844,7 @@ async function main() {
       busy = false;
     }
   };
-  for (const b of postButtons) b.addEventListener("click", startPost);
+  postBtn.addEventListener("click", startPost);
   // ---------------------------------------------------------------- 이어 그리기 (relay game)
   // The game itself is in relay/relay.ts; this is the rock it plays on.
   /** Is the visitor near the site? (Otherwise explains why not, and offers the wall.) */
@@ -1017,7 +862,6 @@ async function main() {
   };
   const relay = new Relay({
     enter: () => {
-      if (motif) quitChallenge();
       closeLab();
       document.body.classList.add("relay");
       ink.reset();
@@ -1143,7 +987,7 @@ async function main() {
   });
 
   const REJECT: Record<string, [string, string]> = {
-    flagged: ["바위에 새길 수 없는 그림이에요", "모두가 함께 보는 벽이라 이 그림은 남길 수 없어요.\n다른 그림으로 다시 도전해 볼까요?"],
+    flagged: ["바위에 새길 수 없는 그림이에요", "모두가 함께 보는 벽이라 이 그림은 남길 수 없어요.\n다른 그림을 그려 볼까요?"],
     message: ["메시지를 고쳐 주세요", "메시지에 벽에 남기기 어려운 말이 있어요.\n고치거나 비워 두고 다시 눌러 주세요."],
     limited: ["잠시 후에 다시 남겨 주세요", "짧은 시간에 너무 많이 남겼어요.\n조금 쉬었다가 다시 시도해 주세요."],
     invalid: ["남길 수 없어요", "그림을 저장하지 못했어요. 다시 그려 볼까요?"],
@@ -1155,7 +999,6 @@ async function main() {
     postOk.textContent = "확인하는 중…";
     postOk.disabled = true;
     const message = clipMessage(postMsg.value.trim());
-    share.setMessage(message);
     const { id: _id, created_at: _at, ...draft } = pending;
     const png = silhouettePNG(live.masks, live.w, live.h) ?? "";
     const res = await guestbook.post(draft, png, message);
@@ -1176,7 +1019,7 @@ async function main() {
       await dialog(title, text, [{ label: "확인", value: 0, primary: true }]);
       if (res.reason === "flagged") {
         setPosted(false);
-        postButtons.forEach((b) => (b.disabled = true));
+        postBtn.disabled = true;
         await leaveWall();
       }
     }

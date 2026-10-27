@@ -1,6 +1,6 @@
 // The real (non-mock) paths with a stubbed fetch: DashScope (OpenAI-compatible) chat API and Supabase REST.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { handleScore } from "./score";
+import { moderatePost, qwenConfig, stripFences } from "./qwen";
 import { handleWall } from "./wall";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
@@ -34,11 +34,18 @@ afterEach(() => {
 const req = (path: string, body?: unknown, ip = "30.0.0.1") =>
   new Request(`http://x${path}`, body ? { method: "POST", headers: { "x-forwarded-for": ip }, body: JSON.stringify(body) } : { headers: { "x-forwarded-for": ip } });
 
-describe("score with an API key", () => {
+describe("stripFences", () => {
+  it("removes code fences and surrounding text", () => {
+    expect(stripFences('```json\n{"a":1}\n```')).toBe('{"a":1}');
+    expect(stripFences('Here you go: {"a": {"b": 2}} thanks')).toBe('{"a": {"b": 2}}');
+  });
+});
+
+describe("Qwen moderation call", () => {
   it("sends the PNG to qwen3-vl-plus and parses a fenced JSON reply", async () => {
-    stubFetch(() => qwenReply('```json\n{"match": 83, "guess": "고래", "comment": "멋진 고래예요!", "flagged": false}\n```'));
-    const res = await handleScore(req("/api/score", { image: PNG, prompt: "whale" }, "30.0.0.1"), { DASHSCOPE_API_KEY: "sk-test" });
-    expect(await res.json()).toEqual({ match: 83, guess: "고래", comment: "멋진 고래예요!", flagged: false });
+    stubFetch(() => qwenReply('```json\n{"flagged": false, "message_flagged": true}\n```'));
+    const r = await moderatePost(qwenConfig({ DASHSCOPE_API_KEY: "sk-test" })!, PNG, "안녕");
+    expect(r).toEqual({ flagged: false, message_flagged: true });
     const sent = calls[0].body as { model: string; messages: { role: string; content: unknown }[] };
     expect(calls[0].url).toBe("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions");
     expect((calls[0].init?.headers as Record<string, string>).authorization).toBe("Bearer sk-test");
@@ -47,22 +54,11 @@ describe("score with an API key", () => {
     expect((sent.messages[1].content as unknown[])[0]).toEqual({ type: "image_url", image_url: { url: `data:image/png;base64,${PNG}` } });
   });
   it("honors DASHSCOPE_BASE_URL and QWEN_MODEL", async () => {
-    stubFetch(() => qwenReply('{"match": 70, "guess": "사슴", "comment": "좋아요!", "flagged": false}'));
+    stubFetch(() => qwenReply('{"flagged": false, "message_flagged": false}'));
     const env = { DASHSCOPE_API_KEY: "sk-test", DASHSCOPE_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1/", QWEN_MODEL: "qwen3-vl-flash" };
-    await handleScore(req("/api/score", { image: PNG, prompt: "deer" }, "30.0.0.5"), env);
+    await moderatePost(qwenConfig(env)!, PNG, "");
     expect(calls[0].url).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions");
     expect((calls[0].body as { model: string }).model).toBe("qwen3-vl-flash");
-  });
-  it("falls back to the neutral result on an API error", async () => {
-    stubFetch(() => new Response('{"error":{"message":"Invalid API-key"}}', { status: 401 }));
-    const r = await (await handleScore(req("/api/score", { image: PNG }, "30.0.0.6"), { DASHSCOPE_API_KEY: "bad" })).json();
-    expect(r.fallback).toBe(true);
-  });
-  it("falls back to the neutral result on a bad reply", async () => {
-    stubFetch(() => qwenReply("Sorry, I can't."));
-    const r = await (await handleScore(req("/api/score", { image: PNG }, "30.0.0.2"), { DASHSCOPE_API_KEY: "sk-test" })).json();
-    expect(r.fallback).toBe(true);
-    expect(r.match).toBe(50);
   });
 });
 

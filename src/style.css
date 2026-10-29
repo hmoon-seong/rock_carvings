@@ -369,6 +369,13 @@ body:not(.relay) .relay-only, .relay[data-rl="draw"] .relay-only, .mode-wall .re
 .al-wait { color: var(--muted); padding: 32px 0; text-align: center; }
 
 /* 이어 그리기 how-to */
+.overlay {
+  position: fixed; inset: 0; z-index: 15; display: flex; align-items: center; justify-content: center;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); background: rgba(20, 16, 12, 0.6);
+  opacity: 0; transition: opacity 0.2s;
+}
+.overlay.show { opacity: 1; }
+.overlay[hidden] { display: none; }
 .tut-box {
   width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; overflow: hidden;
   background: var(--panel); border-radius: 18px; padding: 16px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);

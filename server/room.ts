@@ -9,7 +9,6 @@
 //   start                               (host, lobby, ≥ minPlayers)
 //   submit { step, text? | drawing?, final? }   → RoomView | { error: "text" } (rewrite it)
 //   chain  { chain }                    → { entries } (done: everyone; watchers also while playing)
-//   carve  { chain, x_mm, y_mm, w_mm, h_mm, image }   (host, done: the chain's drawings → shared wall)
 //   again                               (host, done: 한 판 더, same players)
 //   leave                               (the last one out deletes the room)
 //
@@ -18,15 +17,13 @@
 
 import { mockTextFlagged } from "../shared/moderation.ts";
 import {
-  chainFor, chainStrip, cleanText, fillEntry, newHost, newRoom, normCode, randomCode, RELAY, startGame, stepKind, tick, validateDrawing,
-  type CarveMark, type Entry, type PlayerRow, type RelayDrawing, type RoomState,
+  chainFor, cleanText, fillEntry, newHost, newRoom, normCode, randomCode, RELAY, startGame, stepKind, tick, validateDrawing,
+  type Entry, type PlayerRow, type RelayDrawing, type RoomState,
 } from "../shared/relay.ts";
-import { validateDraft, type CarvingDraft } from "../shared/wall.ts";
-import { clientKey, json, pngBase64, readJson, type Env } from "./http.ts";
-import { moderatePost, moderateText, qwenConfig } from "./qwen.ts";
+import { clientKey, json, readJson, type Env } from "./http.ts";
+import { moderateText, qwenConfig } from "./qwen.ts";
 import { allow, RateLimiter } from "./rateLimit.ts";
 import { roomStore, type RoomRecord, type RoomStore } from "./roomStore.ts";
-import { insertCarving, supabaseConf } from "./supabase.ts";
 
 // Several phones of one group often share an IP (site Wi-Fi, carrier NAT): generous limits.
 const perMinute = new RateLimiter(900, 60_000);
@@ -192,7 +189,6 @@ async function checkText(env: Env, text: string): Promise<boolean> {
 type Body = {
   action?: string; code?: string; id?: string; token?: string; name?: string; have?: string;
   step?: number; text?: string; drawing?: RelayDrawing; final?: boolean; chain?: number; watch?: boolean;
-  x_mm?: number; y_mm?: number; w_mm?: number; h_mm?: number; image?: string;
 };
 
 export async function handleRoom(req: Request, env: Env, ip?: string): Promise<Response> {
@@ -330,9 +326,6 @@ export async function handleRoom(req: Request, env: Env, ip?: string): Promise<R
         return json({ entries });
       }
 
-      case "carve":
-        return json(...(await carve(c, env, isHost(), b)));
-
       case "again": {
         if (!isHost() || c.rec.state.phase !== "done") return json({ error: "state" }, 409);
         for (const p of c.players) if (p.seat >= 0) await store.updatePlayer(code, p.id, { seat: -1 });
@@ -345,59 +338,5 @@ export async function handleRoom(req: Request, env: Env, ip?: string): Promise<R
   } catch (err) {
     console.error("room", err);
     return json({ error: "storage" }, 502);
-  }
-}
-
-/**
- * Carves one chain into the shared wall: its drawings side by side (built here, from the
- * stored entries) at the spot the host's phone found, after moderating the strip image and
- * the chain's texts together. The texts themselves are not stored on the wall.
- */
-async function carve(c: Ctx, env: Env, isHost: boolean, b: Body): Promise<[unknown, number?]> {
-  const st = c.rec.state;
-  const chain = Number(b.chain);
-  if (!isHost || st.phase !== "done" || !Number.isInteger(chain) || chain < 0 || chain >= st.n) return [{ error: "state" }, 409];
-  if (st.carved[chain]) return [{ ok: false, reason: "done" }];
-  const entries = await c.store.entries(c.code, st.game, { chain }, true);
-  const strip = chainStrip(entries.flatMap((e) => (e.drawing ? [e.drawing] : [])));
-  const mark = (v: CarveMark) => update(c, (s) => (s.carved[chain] ? null : { ...s, carved: { ...s.carved, [chain]: v } }));
-  if (!strip) {
-    await mark("empty");
-    return [{ ok: false, reason: "empty" }];
-  }
-  const draft: CarvingDraft = {
-    x_mm: Number(b.x_mm), y_mm: Number(b.y_mm), w_mm: Number(b.w_mm), h_mm: Number(b.h_mm),
-    src_w: strip.w, src_h: strip.h, strokes: strip.strokes, prompt: null, score: null, relay: st.n,
-  };
-  const bad = validateDraft(draft);
-  const png = pngBase64(b.image, 600_000);
-  if (bad || !png) return [{ ok: false, reason: "invalid", detail: bad }, 400];
-
-  // Fail closed: the wall is public.
-  const texts = entries.filter((e) => e.text && !e.auto).map((e) => e.text!).join(" / ");
-  let flagged = mockTextFlagged(texts);
-  const ai = qwenConfig(env);
-  if (ai && !flagged) {
-    try {
-      const m = await moderatePost(ai, png, texts);
-      flagged = m.flagged || m.message_flagged;
-    } catch (err) {
-      console.error("chain moderation failed", err);
-      return [{ ok: false, reason: "error" }, 502];
-    }
-  }
-  if (flagged) {
-    await mark("flagged");
-    return [{ ok: false, reason: "flagged" }];
-  }
-  const db = supabaseConf(env);
-  if (!(await mark([draft.x_mm, draft.y_mm, draft.w_mm, draft.h_mm]))) return [{ ok: false, reason: "done" }];
-  if (!db) return [{ ok: true, mode: "mock", draft }];
-  try {
-    return [{ ok: true, mode: "supabase", carving: await insertCarving(db, draft) }];
-  } catch (err) {
-    console.error(err);
-    await update(c, (s) => ({ ...s, carved: Object.fromEntries(Object.entries(s.carved).filter(([k]) => k !== String(chain))) }));
-    return [{ ok: false, reason: "error" }, 502];
   }
 }

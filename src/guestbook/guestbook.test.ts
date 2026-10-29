@@ -51,6 +51,7 @@ describe("validateDraft", () => {
     expect(validateDraft({ ...ok, strokes: [] })).toBe("strokes");
     expect(validateDraft({ ...ok, strokes: [{ c: 0, s: 20, seed: 1, p: [0, 0, 5] }] })).toBe("stroke.p");
     expect(validateDraft({ ...ok, score: 120 })).toBe("score");
+    expect(validateDraft({ ...ok, relay: 3 })).toBe("relay"); // relay chains no longer go on the wall
     expect(validateDraft(null)).toBe("body");
   });
 });

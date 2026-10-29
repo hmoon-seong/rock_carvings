@@ -745,10 +745,7 @@ async function main() {
   $("wallBack").addEventListener("click", () => {
     if (busy) return;
     busy = true;
-    leaveWall().finally(() => {
-      busy = false;
-      relay.resume();
-    });
+    leaveWall().finally(() => (busy = false));
   });
 
   // ---- 벽에 남기기: geolocation → a free spot → confirm (message) → moderation → stored.
@@ -847,19 +844,6 @@ async function main() {
   postBtn.addEventListener("click", startPost);
   // ---------------------------------------------------------------- 이어 그리기 (relay game)
   // The game itself is in relay/relay.ts; this is the rock it plays on.
-  /** Is the visitor near the site? (Otherwise explains why not, and offers the wall.) */
-  const nearSite = async () => {
-    if (!geoBypassed()) toast("위치를 확인하는 중…", 12_000);
-    const geo = await checkNearSite();
-    toast("", 1);
-    if (geo === "ok") return true;
-    const go = await dialog("벽에 남길 수 없어요", GEO_TEXT[geo], [
-      { label: "닫기", value: false },
-      { label: "모두의 벽 구경", value: true, primary: true },
-    ]);
-    if (go) await enterWall();
-    return false;
-  };
   const relay = new Relay({
     enter: () => {
       closeLab();
@@ -927,23 +911,6 @@ async function main() {
       }
       return renderer.snapshot(shareCrop(bbox, meta.width_mm, meta.height_mm, w / h, 0, 300), w, h);
     },
-    stripSpot: async (strip) => {
-      const preferred = { x_mm: Math.random() * (meta.width_mm - strip.w), y_mm: Math.random() * (meta.height_mm - strip.h), w_mm: strip.w, h_mm: strip.h };
-      return (await findSpotsFor(preferred))[0] ?? null;
-    },
-    stripPNG: (strip) => {
-      const k = Math.max(2, Math.max(strip.w, strip.h) / 1200);
-      const { masks, w, h } = rasterizeMasks(fromWallStrokes(strip.strokes), palette.length, strip.w, strip.h, k);
-      return silhouettePNG(masks, w, h, 768);
-    },
-    keepLocal: (d) => void guestbook.saveLocal(d),
-    showWall: async (focus) => {
-      if (busy) return;
-      busy = true;
-      await enterWall(focus).finally(() => (busy = false));
-    },
-    inWall: () => mode === "wall",
-    nearSite,
   });
   relayActive = () => relay.active;
   relayDrawing = () => relay.drawing;

@@ -1,7 +1,7 @@
 // The carvings table through Supabase's REST API (PostgREST), with the anon key.
 // Row-level security allows anonymous select + insert only (supabase/schema.sql).
 
-import { LIMITS, overlaps, rectOf, type Carving, type CarvingDraft, type Rect } from "../shared/wall.ts";
+import { overlaps, rectOf, WALL_MAX, type Carving, type CarvingDraft, type Rect } from "../shared/wall.ts";
 import type { Env } from "./http.ts";
 
 export interface SupabaseConf {
@@ -22,24 +22,23 @@ const headers = (c: SupabaseConf) => ({ apikey: c.key, authorization: `Bearer ${
 export const RECT_COLUMNS = "id,x_mm,y_mm,w_mm,h_mm";
 export const ALL_COLUMNS = "id,created_at,x_mm,y_mm,w_mm,h_mm,src_w,src_h,strokes,prompt,score,relay";
 
-/** Carvings overlapping the rectangle (newest first). */
-export async function listCarvings(c: SupabaseConf, [x, y, w, h]: Rect, columns: string, limit: number): Promise<Carving[]> {
-  const q = new URLSearchParams({ select: columns, order: "created_at.desc", limit: String(limit) });
-  q.append("x_mm", `lt.${x + w}`);
-  q.append("x_mm", `gt.${x - LIMITS.maxSize}`);
-  q.append("y_mm", `lt.${y + h}`);
-  q.append("y_mm", `gt.${y - LIMITS.maxSize}`);
+/**
+ * Carvings overlapping the rectangle (newest first), among the WALL_MAX newest on the whole
+ * wall: the schema's trigger deletes older rows, and this keeps the same rule if it is missing.
+ */
+export async function listCarvings(c: SupabaseConf, [x, y, w, h]: Rect, columns: string): Promise<Carving[]> {
+  const q = new URLSearchParams({ select: columns, order: "created_at.desc", limit: String(WALL_MAX) });
   const res = await fetch(`${c.url}/rest/v1/carvings?${q}`, { headers: headers(c) });
   if (!res.ok) throw new Error(`supabase list ${res.status}: ${await res.text()}`);
   const rows = (await res.json()) as Carving[];
-  // Exact overlap test (the query only bounds the start corner).
+  // Only the ones in view go to the phone.
   return rows.filter((r) => overlaps(rectOf(r), [x, y, w, h]));
 }
 
 export async function insertCarving(c: SupabaseConf, d: CarvingDraft): Promise<Carving> {
   const row = {
     x_mm: d.x_mm, y_mm: d.y_mm, w_mm: d.w_mm, h_mm: d.h_mm, src_w: d.src_w, src_h: d.src_h,
-    strokes: d.strokes, prompt: d.prompt ?? null, score: d.score ?? null, relay: d.relay ?? null,
+    strokes: d.strokes, prompt: d.prompt ?? null, score: d.score ?? null,
   };
   const res = await fetch(`${c.url}/rest/v1/carvings?select=${ALL_COLUMNS}`, {
     method: "POST",

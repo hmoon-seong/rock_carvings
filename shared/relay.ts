@@ -12,7 +12,7 @@
 // filling in for absent players.
 
 import { MOTIFS } from "./motifs.ts";
-import { fitPoints, LIMITS, validateStrokes, type Rect, type WallStroke } from "./wall.ts";
+import { validateStrokes, type WallStroke } from "./wall.ts";
 
 export const RELAY = {
   minPlayers: 3,
@@ -38,9 +38,6 @@ export const RELAY = {
   emptyMs: 120_000,
   /** Rooms are kept at least this long after creation (the creator is added just after). */
   newRoomMs: 60_000,
-  /** One drawing of a chain fits in this box on the wall (mm); the strip keeps this gap. */
-  stripCell: 600,
-  stripGap: 100,
 };
 
 export type Phase = "lobby" | "play" | "done";
@@ -70,8 +67,6 @@ export interface Entry {
   auto?: boolean;
 }
 
-export type CarveMark = Rect | "flagged" | "empty";
-
 export interface RoomState {
   phase: Phase;
   /** Current step while playing. */
@@ -81,8 +76,6 @@ export interface RoomState {
   /** End of the current step (ms epoch); 0 outside play. */
   deadline: number;
   host: string;
-  /** Chains sent to the shared wall: chain → where it was carved (mm), or why not. */
-  carved: Record<number, CarveMark>;
   /** Bumped by 한 판 더, so old entries / submits never mix with a new game. */
   game: number;
 }
@@ -101,7 +94,7 @@ export interface PlayerRow {
 }
 
 export function newRoom(host: string): RoomState {
-  return { phase: "lobby", step: 0, n: 0, deadline: 0, host, carved: {}, game: 0 };
+  return { phase: "lobby", step: 0, n: 0, deadline: 0, host, game: 0 };
 }
 
 /** Room codes: 4 letters without look-alikes (I, O, L…). */
@@ -131,7 +124,7 @@ export function startGame(st: RoomState, players: readonly PlayerRow[], now: num
     [order[i], order[j]] = [order[j], order[i]];
   }
   const seats = new Map(order.map((id, i) => [id, i]));
-  const state: RoomState = { ...st, phase: "play", step: 0, n: order.length, deadline: deadlineFor(0, now), carved: {}, game: st.game + 1 };
+  const state: RoomState = { ...st, phase: "play", step: 0, n: order.length, deadline: deadlineFor(0, now), game: st.game + 1 };
   return { state, seats };
 }
 
@@ -178,31 +171,4 @@ export function validateDrawing(d: unknown): string | null {
   if (!Array.isArray(o.strokes)) return "strokes";
   if (o.strokes.length && (o.w < 1 || o.h < 1)) return "size";
   return validateStrokes(o.strokes);
-}
-
-const r05 = (v: number) => Math.round(v * 2) / 2;
-
-/**
- * A story's drawings side by side in one stroke frame (for the shared wall): each drawing is
- * scaled down to fit the strip cell, vertically centred, in step order. Null if all are empty.
- * (A strip holds at most maxPlayers / 2 = 4 drawings: up to 4 × LIMITS.maxStrokes strokes.)
- */
-export function chainStrip(drawings: readonly RelayDrawing[]): RelayDrawing | null {
-  const cell = RELAY.stripCell, gap = RELAY.stripGap;
-  const parts = drawings.filter((d) => d.strokes.length && d.w > 0 && d.h > 0);
-  if (!parts.length) return null;
-  const sized = parts.map((d) => ({ d, k: Math.min(1, cell / Math.max(d.w, d.h)) }));
-  const h = Math.max(LIMITS.minSize, ...sized.map(({ d, k }) => d.h * k));
-  const strokes: WallStroke[] = [];
-  let x = 0;
-  for (const { d, k } of sized) {
-    const oy = (h - d.h * k) / 2;
-    for (const s of d.strokes) {
-      const p = s.p.map((v, i) => r05(i % 2 ? oy + v * k : x + v * k));
-      strokes.push({ c: s.c, s: Math.max(1, r05(s.s * k)), seed: s.seed, p });
-    }
-    x += d.w * k + gap;
-  }
-  const w = Math.max(LIMITS.minSize, x - gap);
-  return { w, h, strokes: fitPoints(strokes) };
 }

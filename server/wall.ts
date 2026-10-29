@@ -30,7 +30,7 @@ export async function handleWall(req: Request, env: Env, ip?: string): Promise<R
     const rect: Rect = [n("x", 0), n("y", 0), n("w", 1e6), n("h", 1e6)];
     const rects = q.get("rects") === "1";
     try {
-      const carvings = await listCarvings(db, rect, rects ? RECT_COLUMNS : ALL_COLUMNS, rects ? 2000 : 300);
+      const carvings = await listCarvings(db, rect, rects ? RECT_COLUMNS : ALL_COLUMNS);
       return json({ mode: "supabase", carvings });
     } catch (err) {
       console.error(err);

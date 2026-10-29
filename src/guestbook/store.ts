@@ -3,7 +3,7 @@
 // with a few sample carvings ("mock mode"), so the wall works with no accounts at all.
 
 import { mockTextFlagged } from "../../shared/moderation";
-import { overlaps, type Carving, type CarvingDraft, type Rect } from "../../shared/wall";
+import { overlaps, WALL_MAX, type Carving, type CarvingDraft, type Rect } from "../../shared/wall";
 import { API_BASE } from "../api";
 import { SAMPLES } from "./samples";
 
@@ -36,7 +36,8 @@ export class Guestbook {
 
   private localAll(): Carving[] {
     const saved = readLocal<Carving[]>(LOCAL_KEY, []);
-    return [...SAMPLES, ...(Array.isArray(saved) ? saved : []), ...this.memory];
+    // Like the shared wall: only the newest WALL_MAX (the samples are the oldest).
+    return [...SAMPLES, ...(Array.isArray(saved) ? saved : []), ...this.memory].slice(-WALL_MAX);
   }
 
   /** Carvings overlapping `rect` (mm). `rectsOnly` skips the strokes (for finding free spots). */
@@ -94,7 +95,7 @@ export class Guestbook {
     const saved = readLocal<Carving[]>(LOCAL_KEY, []);
     const list = Array.isArray(saved) ? saved : [];
     list.push(carving);
-    writeLocal(LOCAL_KEY, list);
+    writeLocal(LOCAL_KEY, list.slice(-WALL_MAX));
     if (!readLocal<Carving[] | null>(LOCAL_KEY, null)?.some((c) => c.id === carving.id)) this.memory.push(carving);
     this.markMine(carving.id);
     this.mode ??= "local";

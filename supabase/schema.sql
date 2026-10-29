@@ -18,7 +18,7 @@ create table if not exists public.carvings (
   -- the removed challenge mode (2026-10-27); new rows leave them null
   prompt      text check (prompt is null or char_length(prompt) <= 40),
   score       smallint check (score is null or score between 0 and 100),
-  -- 이어 그리기 (relay game): the chain's drawings in a row; number of players (null otherwise)
+  -- old 이어 그리기 rows (a chain's drawings in a row; number of players); no longer written (2026-10-29)
   relay       smallint check (relay is null or relay between 2 and 8)
 );
 
@@ -40,6 +40,20 @@ create policy "anyone can add a carving" on public.carvings
 
 -- No update/delete policies: with RLS on, those are denied for anon.
 -- To remove a carving, use the dashboard (Table editor) or the service role.
+
+-- The wall keeps only the 30 newest carvings (shared/wall.ts → WALL_MAX): each insert deletes
+-- the older ones. Security definer, so it may delete although anon may not.
+create or replace function public.carvings_keep_newest() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.carvings
+  where id not in (select id from public.carvings order by created_at desc, id desc limit 30);
+  return null;
+end $$;
+
+drop trigger if exists carvings_keep_newest on public.carvings;
+create trigger carvings_keep_newest after insert on public.carvings
+  for each statement execute function public.carvings_keep_newest();
 
 -- Newer Supabase projects do not grant tables created in SQL to the API roles automatically.
 -- (Row-level security above still decides which rows; these only open the table at all.)

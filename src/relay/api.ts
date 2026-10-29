@@ -134,13 +134,6 @@ export class RelayApi {
     return this.as<{ entries: ChainEntry[] }>("chain", { chain }).then((r) => r.entries);
   }
 
-  carve(chain: number, rect: [number, number, number, number], image: string) {
-    const [x_mm, y_mm, w_mm, h_mm] = rect;
-    return this.as<{ ok: boolean; reason?: string; mode?: string; draft?: import("../../shared/wall").CarvingDraft }>("carve", {
-      chain, x_mm, y_mm, w_mm, h_mm, image,
-    });
-  }
-
   async leave() {
     this.stop();
     const s = this.session;

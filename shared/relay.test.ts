@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chainFor, chainStrip, cleanText, newHost, newRoom, normCode, RELAY, seatFor, startGame, stepKind, tick, validateDrawing, type PlayerRow } from "./relay";
-import { LIMITS, validateDraft } from "./wall";
+import { chainFor, cleanText, newHost, newRoom, normCode, RELAY, seatFor, startGame, stepKind, tick, validateDrawing, type PlayerRow } from "./relay";
 
 const player = (id: string, joined: number, seen = 1000, watch = false): PlayerRow => ({ id, token: "t" + id, name: id, seat: -1, joined, seen, watch });
 const three = () => [player("a", 1), player("b", 2), player("c", 3)];
@@ -98,30 +97,5 @@ describe("relay rules", () => {
     expect(validateDrawing({ w: 0, h: 0, strokes: [{ c: 0, s: 20, seed: 1, p: [0, 0] }] })).toBe("size");
     expect(validateDrawing({ w: 300, h: 200, strokes: [{ c: 9, s: 20, seed: 1, p: [0, 0] }] })).toBe("stroke.c");
     expect(validateDrawing(null)).toBe("drawing");
-  });
-});
-
-describe("chainStrip", () => {
-  const big = { w: 1200, h: 600, strokes: [{ c: 0, s: 40, seed: 1, p: [0, 0, 1200, 600] }] };
-  const small = { w: 300, h: 300, strokes: [{ c: 1, s: 20, seed: 2, p: [0, 0, 300, 300] }] };
-
-  it("puts drawings in a row, scaled to the cell and centred", () => {
-    const s = chainStrip([big, { w: 0, h: 0, strokes: [] }, small])!;
-    // big is halved (1200 → 600 wide, 300 tall); small keeps its size
-    expect(s.w).toBe(600 + RELAY.stripGap + 300);
-    expect(s.h).toBe(300);
-    expect(s.strokes[0]).toEqual({ c: 0, s: 20, seed: 1, p: [0, 0, 600, 300] });
-    expect(s.strokes[1]).toEqual({ c: 1, s: 20, seed: 2, p: [700, 0, 1000, 300] });
-  });
-
-  it("is null when every drawing is empty", () => {
-    expect(chainStrip([{ w: 0, h: 0, strokes: [] }])).toBeNull();
-  });
-
-  it("makes a valid wall row", () => {
-    const s = chainStrip([big, small, big, small])!;
-    const draft = { x_mm: 100, y_mm: 100, w_mm: s.w, h_mm: s.h, src_w: s.w, src_h: s.h, strokes: s.strokes, relay: 8 };
-    expect(validateDraft(draft)).toBeNull();
-    expect(s.w).toBeLessThanOrEqual(LIMITS.maxSize);
   });
 });

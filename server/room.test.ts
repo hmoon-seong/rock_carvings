@@ -80,16 +80,12 @@ describe("/api/room (memory store, no API key)", () => {
     }
     expect((await as(ps[0], "chain", { chain: 3 })).status).toBe(409);
 
-    // Carve chain 0 into the wall (mock storage: the draft comes back for the client to keep).
-    const pos = { x_mm: 1000, y_mm: 1000, w_mm: 300, h_mm: 200 };
-    expect((await as(ps[1], "carve", { chain: 0, ...pos, image: PNG })).status).toBe(409);
-    const carved = (await as(host, "carve", { chain: 0, ...pos, image: PNG })).body;
-    expect(carved).toMatchObject({ ok: true, mode: "mock", draft: { relay: 3, src_w: 300, src_h: 200 } });
-    expect((await as(host, "carve", { chain: 0, ...pos, image: PNG })).body).toMatchObject({ ok: false, reason: "done" });
+    // Chains no longer go on the shared wall (2026-10-29).
+    expect((await as(host, "carve", { chain: 0, x_mm: 1000, y_mm: 1000, w_mm: 300, h_mm: 200, image: PNG })).status).toBe(400);
 
     // 한 판 더: back to the lobby with the same players.
     v = (await as(host, "again")).body as unknown as RoomView;
-    expect(v.state).toMatchObject({ phase: "lobby", game: 1, carved: {} });
+    expect(v.state).toMatchObject({ phase: "lobby", game: 1 });
     expect(v.players).toHaveLength(3);
   });
 

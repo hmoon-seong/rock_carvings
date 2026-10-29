@@ -20,7 +20,7 @@ export interface CarvingDraft {
   strokes: WallStroke[];
   prompt?: string | null;
   score?: number | null;
-  /** 이어 그리기: a chain's drawings in a row; the number of players (null otherwise). */
+  /** Old 이어 그리기 rows: a chain's drawings in a row; the number of players. No longer written (2026-10-29). */
   relay?: number | null;
 }
 
@@ -30,6 +30,9 @@ export interface Carving extends CarvingDraft {
 }
 
 export type Rect = [number, number, number, number]; // x, y, w, h (mm)
+
+/** The wall keeps only this many carvings: the newest ones (older rows are deleted, supabase/schema.sql). */
+export const WALL_MAX = 30;
 
 export const LIMITS = {
   maxStrokes: 400,
@@ -49,11 +52,11 @@ export function validateDraft(d: unknown): string | null {
   if (o.w_mm < LIMITS.minSize || o.h_mm < LIMITS.minSize || o.w_mm > LIMITS.maxSize || o.h_mm > LIMITS.maxSize) return "size";
   if (o.src_w <= 0 || o.src_h <= 0 || o.src_w > LIMITS.maxSize || o.src_h > LIMITS.maxSize) return "src";
   if (!Array.isArray(o.strokes) || o.strokes.length === 0) return "strokes";
-  const bad = validateStrokes(o.strokes, o.relay ? LIMITS.maxStrokes * 4 : LIMITS.maxStrokes);
+  const bad = validateStrokes(o.strokes);
   if (bad) return bad;
   if (o.prompt != null && (typeof o.prompt !== "string" || o.prompt.length > 40)) return "prompt";
   if (o.score != null && (!Number.isInteger(o.score) || o.score < 0 || o.score > 100)) return "score";
-  if (o.relay != null && (!Number.isInteger(o.relay) || o.relay < 2 || o.relay > 8)) return "relay";
+  if (o.relay != null) return "relay"; // only free drawings go on the wall
   return null;
 }
 

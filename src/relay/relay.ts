@@ -3,11 +3,10 @@
 // has sent their answer waits for the others ("wait"). A watcher (관전) follows the chains as
 // they grow ("watch"). At the end every player opens the album of the chain they started.
 // The server decides which step the room is at (src/relay/api.ts polls it); this controller
-// turns each room view into a screen. The rock itself (drawing, carving, camera, the shared
-// wall) belongs to main.ts and is reached through RelayHost.
+// turns each room view into a screen. The rock itself (drawing, carving, camera) belongs to
+// main.ts and is reached through RelayHost. Chains do not go on the shared wall (2026-10-29).
 
-import { chainStrip, RELAY, stepKind, type RelayDrawing, type StepKind } from "../../shared/relay";
-import type { CarvingDraft, Rect } from "../../shared/wall";
+import { RELAY, stepKind, type RelayDrawing, type StepKind } from "../../shared/relay";
 import { dialog, toast } from "../ui/notice";
 import type { Album } from "./album";
 import { RelayApi, RoomError, saveName, savedName, type ChainEntry, type RoomView } from "./api";
@@ -28,16 +27,6 @@ export interface RelayHost {
   showDrawing(d: RelayDrawing | null, timelapse: boolean): Promise<void>;
   /** Carves a drawing (null: bare rock) at the current spot and returns a w × h photo of it under the light. */
   photo(d: RelayDrawing | null, w: number, h: number): Promise<HTMLCanvasElement>;
-  /** A free spot on the shared wall for a chain strip; null if the wall is full. */
-  stripSpot(strip: RelayDrawing): Promise<Rect | null>;
-  /** The strip as a flat silhouette PNG (for moderation). */
-  stripPNG(strip: RelayDrawing): string | null;
-  /** Keeps a carving on this device's wall (no shared storage). */
-  keepLocal(d: CarvingDraft): void;
-  showWall(focus?: Rect): Promise<void>;
-  inWall(): boolean;
-  /** Geolocation gate of the shared wall (shows its own message when not near). */
-  nearSite(): Promise<boolean>;
 }
 
 type Screen = "join" | "lobby" | StepKind | "wait" | "watch" | "done";
@@ -96,7 +85,6 @@ export class Relay {
   private running: Promise<void> = Promise.resolve();
   private timerRaf = 0;
   private qrFor = "";
-  private carving = false;
   /** Loaded on first use (not part of the first page load). */
   private album: Album | null = null;
   private albumP: Promise<Album> | null = null;
@@ -192,12 +180,6 @@ export class Relay {
     await this.close();
   }
 
-  /** Back from the shared wall. */
-  resume() {
-    if (!this.active) return;
-    if (this.screen === "done") this.album?.show();
-    this.sync();
-  }
 
   // ---------------------------------------------------------------- views
 
@@ -247,7 +229,7 @@ export class Relay {
 
   private async apply() {
     const v = this.v;
-    if (!v || !this.active || this.host.inWall()) return;
+    if (!v || !this.active) return;
     const screen = this.screenFor(v);
     const key = this.keyOf(v);
     const changed = screen !== this.screen || key !== this.stepKey;
@@ -574,67 +556,10 @@ export class Relay {
     ol.lastElementChild?.scrollIntoView({ block: "nearest" });
   }
 
-  // ---------------------------------------------------------------- done: albums + the shared wall
+  // ---------------------------------------------------------------- done: albums
 
   private updateDone(v: RoomView) {
-    const st = v.state;
-    const isHost = st.host === v.me;
-    const marks = Object.values(st.carved);
-    const placed = marks.filter((m) => Array.isArray(m)).length;
-    const left = st.n - marks.length;
-    const note = $("rlCarveNote");
-    if (this.carving) note.textContent = "벽에 새기는 중…";
-    else if (marks.length) note.textContent = `모두의 벽에 ${placed}개를 남겼어요${marks.length - placed ? ` · ${marks.length - placed}개는 남기지 못했어요` : ""}`;
-    else note.textContent = "위의 탭으로 다른 사람 이야기도 볼 수 있어요";
-    const carve = $<HTMLButtonElement>("rlCarve");
-    carve.hidden = !isHost || left === 0;
-    carve.disabled = this.carving;
-    $("rlWall").hidden = placed === 0;
-    $("rlAgain").hidden = !isHost;
-  }
-
-  private async carveAll() {
-    const v = this.v;
-    if (!v || v.state.phase !== "done" || this.carving) return;
-    if (!(await this.host.nearSite())) return;
-    this.carving = true;
-    this.updateDone(v);
-    let full = false, failed = 0;
-    let first: Rect | null = null;
-    try {
-      for (let c = 0; c < v.state.n; c++) {
-        if (this.v!.state.carved[c]) continue;
-        const entries = await this.loadChain(v.state.game, c, v.state.n);
-        const strip = chainStrip(entries.flatMap((e) => (e.drawing ? [e.drawing] : [])));
-        let rect: Rect = [0, 0, 0, 0], png = "";
-        if (strip) {
-          const spot = await this.host.stripSpot(strip);
-          if (!spot) {
-            full = true;
-            break;
-          }
-          rect = spot;
-          png = this.host.stripPNG(strip) ?? "";
-        }
-        const res = await this.api.carve(c, rect, png).catch(() => ({ ok: false, reason: "error" }) as const);
-        if (res.ok && "draft" in res && res.mode === "mock" && res.draft) this.host.keepLocal(res.draft);
-        if (res.ok) first ??= rect;
-        else if (res.reason === "error") failed++;
-      }
-    } catch {
-      failed++;
-    } finally {
-      this.carving = false;
-    }
-    await this.api.state().catch(() => {});
-    if (full) await dialog("벽이 가득 찼어요", "지금은 빈자리가 없어요.\n남기지 못한 이야기도 있어요.", [{ label: "확인", value: 0, primary: true }]);
-    else if (failed) toast("일부를 남기지 못했어요. 다시 눌러 주세요");
-    else if (first) toast("모두의 벽에 새겼어요!");
-  }
-
-  private firstPlaced(): Rect | undefined {
-    const marks = Object.values(this.v?.state.carved ?? {});
-    return marks.find((m): m is Rect => Array.isArray(m));
+    $("rlAgain").hidden = v.state.host !== v.me;
   }
 
   // ---------------------------------------------------------------- overlays
@@ -774,11 +699,6 @@ export class Relay {
       this.sync();
     });
     $("rlSave").addEventListener("click", () => void this.album?.save());
-    $("rlCarve").addEventListener("click", () => this.carveAll());
     $("rlAgain").addEventListener("click", () => this.api.act("again").catch(() => toast("다시 시작하지 못했어요")));
-    $("rlWall").addEventListener("click", () => {
-      this.album?.hide();
-      void this.host.showWall(this.firstPlaced());
-    });
   }
 }

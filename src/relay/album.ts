@@ -92,14 +92,6 @@ export class Album {
     this.root.hidden = true;
   }
 
-  /** Hidden while the shared wall is shown; show() brings it back. */
-  hide() {
-    this.root.hidden = true;
-  }
-  show() {
-    if (this.o) this.root.hidden = false;
-  }
-
   private renderTabs() {
     const o = this.o!;
     const order = Array.from({ length: o.n }, (_, c) => c);
